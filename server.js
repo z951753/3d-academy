@@ -11,6 +11,18 @@ const crypto = require('crypto');
 const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'data', 'db.json');
 
+// ===== Supabase 连接（如果配置了环境变量则启用） =====
+let supabase = null;
+let USE_SUPABASE = false;
+try {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const { createClient } = require('@supabase/supabase-js');
+    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    USE_SUPABASE = true;
+    console.log('[✅] 已连接到 Supabase 数据库');
+  }
+} catch(e) { console.log('[ℹ] 未检测到 Supabase 配置，使用本地数据库'); }
+
 // ===== MIME 类型 =====
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -182,7 +194,7 @@ async function handleAPI(req, url) {
 
   // 健康检查
   if (pathname === '/api/health' && req.method === 'GET') {
-    return jsonRes({ status: 'ok', time: new Date().toISOString(), provider: 'node-local-db' });
+    return jsonRes({ status: 'ok', time: new Date().toISOString(), provider: USE_SUPABASE ? 'supabase-postgresql' : 'node-local-db' });
   }
 
   // ========== 认证 API ==========
@@ -193,6 +205,16 @@ async function handleAPI(req, url) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return jsonRes({ error: '邮箱格式不正确' }, 400);
     if (body.password.length < 6) return jsonRes({ error: '密码至少6位' }, 400);
 
+    if (USE_SUPABASE) {
+      // Supabase 模式
+      const { data: existing } = await supabase.from('users').select('id').eq('email', body.email).maybeSingle();
+      if (existing) return jsonRes({ error: '该邮箱已被注册' }, 409);
+      const id = makeId('user');
+      await supabase.from('users').insert([{ id, email: body.email, password_hash: await hashPassword(body.password), nickname: body.nickname, created_at: new Date().toISOString() }]);
+      return jsonRes({ message: '注册成功', token: generateToken(id), user: { id, email: body.email, nickname: body.nickname } }, 201);
+    }
+
+    // 本地模式
     const db = loadDB();
     const existingUser = Object.values(db.users).find(u => u.email === body.email);
     if (existingUser) return jsonRes({ error: '该邮箱已被注册' }, 409);
@@ -217,6 +239,18 @@ async function handleAPI(req, url) {
     const body = await parseBody(req);
     if (!body.email || !body.password) return jsonRes({ error: '请输入邮箱和密码' }, 400);
 
+    if (USE_SUPABASE) {
+      const { data: user } = await supabase.from('users').select('*').eq('email', body.email).maybeSingle();
+      if (!user) return jsonRes({ error: '邮箱或密码错误' }, 401);
+      const inputHash = await hashPassword(body.password);
+      if (inputHash !== user.password_hash) return jsonRes({ error: '邮箱或密码错误' }, 401);
+      return jsonRes({
+        message: '登录成功',
+        token: generateToken(user.id),
+        user: { id: user.id, email: user.email, nickname: user.nickname, avatarColor: user.avatar_color, bio: user.bio }
+      });
+    }
+
     const db = loadDB();
     const user = Object.values(db.users).find(u => u.email === body.email);
     if (!user) return jsonRes({ error: '邮箱或密码错误' }, 401);
@@ -240,6 +274,21 @@ async function handleAPI(req, url) {
   if (pathname === '/api/user/profile') {
     const userId = getAuthUser(req);
     if (!userId) return jsonRes({ error: '未登录' }, 401);
+
+    if (USE_SUPABASE) {
+      const { data: user } = await supabase.from('users').select('*').eq('id', userId).maybeSingle();
+      if (!user) return jsonRes({ error: '用户不存在' }, 404);
+      if (req.method === 'GET') { return jsonRes({ id: user.id, email: user.email, nickname: user.nickname, avatar_color: user.avatar_color, bio: user.bio, created_at: user.created_at }); }
+      if (req.method === 'PUT') {
+        const body = await parseBody(req);
+        await supabase.from('users').update({
+          nickname: body.nickname ?? user.nickname,
+          avatar_color: body.avatarColor ?? user.avatar_color,
+          bio: body.bio ?? user.bio
+        }).eq('id', userId);
+        return jsonRes({ message: '个人信息已更新' });
+      }
+    }
 
     const db = loadDB();
     const user = db.users[userId];
@@ -272,6 +321,44 @@ async function handleAPI(req, url) {
   if (pathname.match(/^\/api\/modules(?:\/.*)?$/)) {
     const idMatch = pathname.match(/^\/api\/modules\/(.+)$/);
     const id = idMatch ? decodeURIComponent(idMatch[1]) : null;
+
+    // ===== Supabase 模式 =====
+    if (USE_SUPABASE) {
+      if (req.method === 'GET' && !id) {
+        let q = supabase.from('modules').select('*').eq('user_id', userId);
+        let filter = url.searchParams.get('filter') || 'all';
+        let search = url.searchParams.get('search') || '';
+        if (filter !== 'all') q = q.eq('category', filter);
+        const { data: list } = await q;
+        let result = list || [];
+        if (search) { const kw = search.toLowerCase(); result = result.filter(m => (m.title+m.desc+(m.tags||'')).toLowerCase().includes(kw)); }
+        return jsonRes(result);
+      }
+      if (req.method === 'POST' && !id) {
+        const body = await parseBody(req);
+        if (!body.title || !body.category) return jsonRes({ error: '标题和分类为必填项' }, 400);
+        const newId = makeId('custom-mod');
+        await supabase.from('modules').insert([{ id: newId, user_id: userId, title: body.title, icon: body.icon||'📚', category: body.category, desc: body.desc||'', tags: body.tags||'', difficulty: body.difficulty||50, color: body.color||'#6ea8fe', builtin: 0, created_at: new Date().toISOString() }]);
+        const { data: newItem } = await supabase.from('modules').select('*').eq('id', newId).maybeSingle();
+        return jsonRes(newItem, 201);
+      }
+      if (req.method === 'PUT' && id) {
+        const body = await parseBody(req);
+        await supabase.from('modules').update({ title: body.title, icon: body.icon, category: body.category, desc: body.desc, tags: body.tags, difficulty: body.difficulty, color: body.color }).eq('id', id).eq('user_id', userId);
+        const { data: updated } = await supabase.from('modules').select('*').eq('id', id).maybeSingle();
+        return jsonRes(updated);
+      }
+      if (req.method === 'DELETE' && id) {
+        const { data: existing } = await supabase.from('modules').select('builtin').eq('id', id).eq('user_id', userId).maybeSingle();
+        if (!existing) return jsonRes({ error: '模块不存在' }, 404);
+        if (existing.builtin) return jsonRes({ error: '内置模块不可删除' }, 404);
+        await supabase.from('modules').delete().eq('id', id);
+        return jsonRes({ message: '模块已删除' });
+      }
+      return; // Supabase 模式处理完毕
+    }
+
+    // 本地模式
     const list = db.modules[userId] || [];
 
     if (req.method === 'GET' && !id) {
@@ -310,6 +397,40 @@ async function handleAPI(req, url) {
   if (pathname.match(/^\/api\/tutorials(?:\/.*)?$/)) {
     const idMatch = pathname.match(/^\/api\/tutorials\/(.+)$/);
     const id = idMatch ? decodeURIComponent(idMatch[1]) : null;
+
+    if (USE_SUPABASE) {
+      if (req.method === 'GET' && !id) {
+        let q = supabase.from('tutorials').select('*').eq('user_id', userId);
+        let filter = url.searchParams.get('filter') || 'all';
+        let search = url.searchParams.get('search') || '';
+        if (filter !== 'all') q = q.eq('cat', filter);
+        const { data: list } = await q;
+        let result = list || [];
+        if (search) { const kw = search.toLowerCase(); result = result.filter(t => (t.title+t.cat+t.level+(t.desc||'')).toLowerCase().includes(kw)); }
+        return jsonRes(result);
+      }
+      if (req.method === 'POST' && !id) {
+        const body = await parseBody(req);
+        if (!body.title || !body.cat || !body.level || !body.link) return jsonRes({ error: '标题、分类、难度、链接均为必填项' }, 400);
+        const newId = makeId('custom');
+        await supabase.from('tutorials').insert([{ id: newId, user_id: userId, title: body.title, cat: body.cat, level: body.level, desc: body.desc||'', link: body.link, builtin: 0, created_at: new Date().toISOString() }]);
+        const { data: newItem } = await supabase.from('tutorials').select('*').eq('id', newId).maybeSingle();
+        return jsonRes(newItem, 201);
+      }
+      if (req.method === 'PUT' && id) {
+        const body = await parseBody(req);
+        await supabase.from('tutorials').update({ title: body.title, cat: body.cat, level: body.level, desc: body.desc, link: body.link }).eq('id', id).eq('user_id', userId);
+        const { data: updated } = await supabase.from('tutorials').select('*').eq('id', id).maybeSingle();
+        return jsonRes(updated);
+      }
+      if (req.method === 'DELETE' && id) {
+        await supabase.from('tutorials').delete().eq('id', id).eq('user_id', userId);
+        return jsonRes({ message: '教程已删除' });
+      }
+      return;
+    }
+
+    // 本地模式
     const list = db.tutorials[userId] || [];
 
     if (req.method === 'GET' && !id) {
@@ -404,39 +525,50 @@ async function handleAPI(req, url) {
   // ========== 作业 CRUD ==========
   // 社区广场：公开查看所有用户的作业（无需认证）
   if (pathname === '/api/homework/public' && req.method === 'GET') {
+    if (USE_SUPABASE) {
+      // Supabase 模式：查询所有作业 + 关联用户信息
+      const { data: allHw } = await supabase.from('homework').select('*').order('created_at', { ascending: false });
+      let result = allHw || [];
+      // 获取所有作者信息
+      const authorIds = [...new Set(result.map(h => h.user_id))];
+      if (authorIds.length > 0) {
+        const { data: authors } = await supabase.from('users').select('id,nickname,email,avatar_color').in('id', authorIds);
+        const authorMap = {};
+        (authors||[]).forEach(a => { authorMap[a.id] = a; });
+        result = result.map(h => ({
+          ...h,
+          _authorId: h.user_id,
+          _authorNickname: authorMap[h.user_id] ? (authorMap[h.user_id].nickname || authorMap[h.user_id].email.split('@')[0]) : '匿名',
+          _authorAvatarColor: authorMap[h.user_id]?.avatar_color || '#6ea8fe'
+        }));
+      }
+      let filter = url.searchParams.get('filter') || 'all';
+      let search = url.searchParams.get('search') || '';
+      if (filter !== 'all') result = result.filter(h => h.status === filter);
+      if (search) { const kw = search.toLowerCase(); result = result.filter(h => (h.title+h.subject+(h.desc||'')).toLowerCase().includes(kw)); }
+      const page = parseInt(url.searchParams.get('page') || '1');
+      const pageSize = parseInt(url.searchParams.get('pageSize') || '20');
+      return jsonRes({ list: result.slice((page-1)*pageSize, page*pageSize), total: result.length, page, totalPages: Math.ceil(result.length/pageSize) });
+    }
+
+    // 本地模式
     const db = loadDB();
     const allHomework = [];
-    // 收集所有用户的作业
     for (const [uid, hwList] of Object.entries(db.homework || {})) {
       const user = db.users[uid];
       const nickname = user ? (user.nickname || user.email.split('@')[0]) : '匿名用户';
       const avatarColor = user ? (user.avatar_color || '#6ea8fe') : '#6ea8fe';
-      for (const hw of (hwList || [])) {
-        allHomework.push({
-          ...hw,
-          _authorId: uid,
-          _authorNickname: nickname,
-          _authorAvatarColor: avatarColor,
-        });
-      }
+      for (const hw of (hwList || [])) { allHomework.push({ ...hw, _authorId: uid, _authorNickname: nickname, _authorAvatarColor: avatarColor }); }
     }
-    // 按创建时间倒序排列
     allHomework.sort((a, b) => new Date(b.created_at || b.date || 0) - new Date(a.created_at || a.date || 0));
-    
-    // 支持筛选和搜索
     let filter = url.searchParams.get('filter') || 'all';
     let search = url.searchParams.get('search') || '';
     let result = allHomework;
     if (filter !== 'all') result = result.filter(h => h.status === filter);
     if (search) { const kw = search.toLowerCase(); result = result.filter(h => (h.title+h.subject+(h.desc||'')).toLowerCase().includes(kw)); }
-    
-    // 分页
     const page = parseInt(url.searchParams.get('page') || '1');
     const pageSize = parseInt(url.searchParams.get('pageSize') || '20');
-    const start = (page - 1) * pageSize;
-    const paged = result.slice(start, start + pageSize);
-    
-    return jsonRes({ list: paged, total: result.length, page, totalPages: Math.ceil(result.length / pageSize) });
+    return jsonRes({ list: result.slice((page-1)*pageSize, page*pageSize), total: result.length, page, totalPages: Math.ceil(result.length/pageSize) });
   }
 
   // 点赞/取消点赞作业
@@ -606,9 +738,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log('\n========================================');
-  console.log('  \ud83c\udfa8 3D\u52a8\u753b\u5b66\u9662 - \u670d\u52a1\u5668\u542f\u52a8\u6210\u529f!');
-  console.log('  \u5730\u5740: http://localhost:' + PORT);
-  console.log('  \u6570\u636e\u5e93: ' + DB_FILE);
-  console.log('  \u63d0\u4f9b\u8005: Node.js \u672c\u5730\u6570\u636e\u5e93 (\u65e0\u9700 Supabase)');
+  console.log('  🎨 3D动画学院 - 服务器启动成功!');
+  console.log('  地址: http://localhost:' + PORT);
+  console.log('  数据库: ' + (USE_SUPABASE ? '✅ Supabase PostgreSQL (云端持久化)' : DB_FILE));
   console.log('========================================\n\n');
 });
