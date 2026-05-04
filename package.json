@@ -1,0 +1,1 @@
+{"name": "3d-academy", "version": "2.0.0", "description": "3D动画学院 - 全栈学习平台 (Vercel + Supabase)", "scripts": {"dev": "npx vercel dev", "build": "echo 'Static site, no build needed'", "start": "npx serve . -l 3000", "deploy": "npx vercel --prod"}, "dependencies": {"@supabase/supabase-js": "^2.39.0"}, "devDependencies": {}}

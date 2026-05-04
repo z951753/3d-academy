@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D动画学院 | 从零开始学三维动画</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- EmailJS SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+</head>
+<body>
+  <!-- 粒子背景画布 -->
+  <canvas id="particleCanvas"></canvas>
+
+  <!-- 导航栏 -->
+  <nav class="navbar" id="navbar">
+    <div class="nav-inner">
+      <a href="#" class="logo">
+        <span class="logo-icon">◆</span> 3D动画学院
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="#home" class="nav-link active">首页</a>
+        <a href="#modules" class="nav-link">学习模块</a>
+        <a href="#tutorials" class="nav-link">教程中心</a>
+        <a href="#roadmap" class="nav-link">学习路线</a>
+        <a href="#mistakes" class="nav-link">错题集</a>
+        <a href="#homework" class="nav-link">作业存储</a>
+        <a href="#principles" class="nav-link">动画法则</a>
+        <a href="#resources" class="nav-link">资源库</a>
+      </div>
+      <button class="menu-btn" id="menuBtn" aria-label="菜单">☰</button>
+      <!-- 用户区域 -->
+      <div class="nav-user" id="navUser">
+        <button class="btn btn-login" id="loginBtn">登录</button>
+        <div class="user-avatar-wrap" id="userAvatarWrap" style="display:none">
+          <div class="user-avatar" id="userAvatar">U</div>
+          <div class="user-dropdown" id="userDropdown">
+            <div class="user-info">
+              <div class="user-avatar user-avatar-lg" id="dropdownAvatar">U</div>
+              <div>
+                <div class="user-name" id="dropdownName">用户</div>
+                <div class="user-email" id="dropdownEmail">user@example.com</div>
+              </div>
+            </div>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" id="profileBtn">👤 个人信息</button>
+            <button class="dropdown-item" id="logoutBtn">🚪 退出登录</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 登录/注册弹窗 -->
+  <div class="modal-overlay" id="authModalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="authModalTitle">登录</h3>
+        <button class="modal-close" id="authModalClose">✕</button>
+      </div>
+      <form id="authForm" class="modal-form">
+        <!-- 注册时的用户名字段 -->
+        <div class="form-group" id="authNicknameGroup" style="display:none">
+          <label for="authNickname">昵称 <span class="required">*</span></label>
+          <input type="text" id="authNickname" placeholder="给自己起个名字">
+        </div>
+        <div class="form-group">
+          <label for="authEmail">邮箱 <span class="required">*</span></label>
+          <div class="email-row">
+            <input type="email" id="authEmail" placeholder="your@email.com" required>
+            <button type="button" class="btn btn-send-code" id="sendCodeBtn" style="display:none">发送验证码</button>
+          </div>
+        </div>
+        <!-- 注册时的验证码 -->
+        <div class="form-group" id="authCodeGroup" style="display:none">
+          <label for="authCode">邮箱验证码 <span class="required">*</span></label>
+          <input type="text" id="authCode" placeholder="请输入6位验证码" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+        </div>
+        <div class="form-group">
+          <label for="authPassword">密码 <span class="required">*</span></label>
+          <input type="password" id="authPassword" placeholder="至少6位密码" required minlength="6">
+        </div>
+        <!-- 注册时的确认密码 -->
+        <div class="form-group" id="authConfirmGroup" style="display:none">
+          <label for="authConfirm">确认密码 <span class="required">*</span></label>
+          <input type="password" id="authConfirm" placeholder="再次输入密码">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" id="authCancel">取消</button>
+          <button type="submit" class="btn btn-primary" id="authSubmit">登录</button>
+        </div>
+        <div class="auth-switch">
+          <span id="authSwitchText">还没有账号？</span>
+          <button type="button" class="auth-switch-btn" id="authSwitchBtn">立即注册</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 个人信息弹窗 -->
+  <div class="modal-overlay" id="profileModalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>个人信息</h3>
+        <button class="modal-close" id="profileModalClose">✕</button>
+      </div>
+      <form id="profileForm" class="modal-form">
+        <div class="form-group">
+          <label>头像颜色</label>
+          <div class="avatar-colors" id="avatarColors">
+            <span class="avatar-color active" data-color="#6ea8fe" style="background:#6ea8fe"></span>
+            <span class="avatar-color" data-color="#a78bfa" style="background:#a78bfa"></span>
+            <span class="avatar-color" data-color="#f472b6" style="background:#f472b6"></span>
+            <span class="avatar-color" data-color="#34d399" style="background:#34d399"></span>
+            <span class="avatar-color" data-color="#fbbf24" style="background:#fbbf24"></span>
+            <span class="avatar-color" data-color="#fb923c" style="background:#fb923c"></span>
+            <span class="avatar-color" data-color="#22d3ee" style="background:#22d3ee"></span>
+            <span class="avatar-color" data-color="#ef4444" style="background:#ef4444"></span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="profileNickname">昵称</label>
+          <input type="text" id="profileNickname" placeholder="修改昵称">
+        </div>
+        <div class="form-group">
+          <label for="profileEmail">邮箱</label>
+          <input type="email" id="profileEmail" disabled>
+        </div>
+        <div class="form-group">
+          <label for="profileBio">个性签名</label>
+          <input type="text" id="profileBio" placeholder="一句话介绍自己">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" id="profileCancel">关闭</button>
+          <button type="submit" class="btn btn-primary">保存修改</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== Hero 区域 ==================== -->
+  <section class="hero" id="home">
+    <div class="hero-content">
+      <div class="hero-text">
+        <h1 class="hero-title">
+          <span class="title-line">探索三维动画的</span>
+          <span class="title-line gradient-text">无限可能</span>
+        </h1>
+        <p class="hero-desc">从 Maya 基础操作到高级角色动画，系统化的学习路径，助你成为三维动画师。零基础友好，每一步都有详细指导。</p>
+        <div class="hero-btns">
+          <a href="#modules" class="btn btn-primary">开始学习 →</a>
+          <a href="#roadmap" class="btn btn-outline">查看路线图</a>
+        </div>
+        <div class="hero-stats">
+          <div class="stat"><span class="stat-num" data-target="120">0</span><span class="stat-label">+ 教程</span></div>
+          <div class="stat"><span class="stat-num" data-target="8">0</span><span class="stat-label">大模块</span></div>
+          <div class="stat"><span class="stat-num" data-target="30">0</span><span class="stat-label">天计划</span></div>
+          <div class="stat"><span class="stat-num" data-target="1000">0</span><span class="stat-label">+ 学员</span></div>
+        </div>
+      </div>
+      <div class="hero-3d">
+        <!-- CSS 3D 旋转立方体 -->
+        <div class="cube-scene">
+          <div class="cube" id="heroCube">
+            <div class="cube-face front">🎬<br><small>动画</small></div>
+            <div class="cube-face back">🦴<br><small>绑定</small></div>
+            <div class="cube-face right">🧱<br><small>建模</small></div>
+            <div class="cube-face left">🎨<br><small>材质</small></div>
+            <div class="cube-face top">💡<br><small>灯光</small></div>
+            <div class="cube-face bottom">📷<br><small>渲染</small></div>
+          </div>
+        </div>
+        <p class="cube-hint">拖动旋转 / 滚轮缩放</p>
+      </div>
+    </div>
+    <div class="scroll-indicator">
+      <span>向下滚动</span>
+      <div class="scroll-arrow"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 学习模块 ==================== -->
+  <section class="section" id="modules">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">LEARNING MODULES</span>
+        <h2 class="section-title">学习模块管理</h2>
+        <p class="section-desc">自定义学习模块，添加你想要学习的方向和内容</p>
+      </div>
+      <div class="tutorial-controls">
+        <div class="tutorial-top-row">
+          <input type="text" class="search-input" id="moduleSearch" placeholder="🔍 搜索模块名称或标签...">
+          <button class="btn btn-add" id="addModuleBtn">＋ 添加模块</button>
+        </div>
+        <div class="filter-btns" id="moduleFilterBtns">
+          <button class="filter-btn active" data-filter="all">全部</button>
+          <button class="filter-btn" data-filter="建模">建模</button>
+          <button class="filter-btn" data-filter="材质">材质</button>
+          <button class="filter-btn" data-filter="渲染">渲染</button>
+          <button class="filter-btn" data-filter="绑定">绑定</button>
+          <button class="filter-btn" data-filter="动画">动画</button>
+          <button class="filter-btn" data-filter="特效">特效</button>
+          <button class="filter-btn" data-filter="脚本">脚本</button>
+          <button class="filter-btn" data-filter="其他">其他</button>
+        </div>
+      </div>
+      <div class="modules-grid" id="modulesGrid"></div>
+      <p class="empty-msg" id="moduleEmptyMsg" style="display:none">没有找到匹配的模块~</p>
+
+      <!-- 添加/编辑模块弹窗 -->
+      <div class="modal-overlay" id="moduleModalOverlay">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 id="moduleModalTitle">添加新模块</h3>
+            <button class="modal-close" id="moduleModalClose">✕</button>
+          </div>
+          <form id="moduleForm" class="modal-form">
+            <input type="hidden" id="moduleEditId" value="">
+            <div class="form-group">
+              <label for="modTitle">模块标题 <span class="required">*</span></label>
+              <input type="text" id="modTitle" placeholder="例如：多边形建模" required>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="modIcon">图标（emoji）</label>
+                <input type="text" id="modIcon" placeholder="例如：🧱 🎨 💡" maxlength="4">
+              </div>
+              <div class="form-group">
+                <label for="modCategory">分类 <span class="required">*</span></label>
+                <select id="modCategory" required>
+                  <option value="">选择分类</option>
+                  <option value="建模">建模</option>
+                  <option value="材质">材质</option>
+                  <option value="渲染">渲染</option>
+                  <option value="绑定">绑定</option>
+                  <option value="动画">动画</option>
+                  <option value="特效">特效</option>
+                  <option value="脚本">脚本</option>
+                  <option value="其他">其他</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="modDesc">描述</label>
+              <input type="text" id="modDesc" placeholder="简要描述这个模块的学习内容">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="modTags">标签（用逗号分隔）</label>
+                <input type="text" id="modTags" placeholder="例如：硬表面, 角色建模, 拓扑优化">
+              </div>
+              <div class="form-group">
+                <label for="modDiff">难度 (1-100)</label>
+                <input type="number" id="modDiff" min="10" max="100" step="5" placeholder="50" value="50">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="modColor">主题色</label>
+              <div class="avatar-colors" id="modColors">
+                <span class="avatar-color active" data-color="#6ea8fe" style="background:#6ea8fe"></span>
+                <span class="avatar-color" data-color="#f472b6" style="background:#f472b6"></span>
+                <span class="avatar-color" data-color="#fbbf24" style="background:#fbbf24"></span>
+                <span class="avatar-color" data-color="#34d399" style="background:#34d399"></span>
+                <span class="avatar-color" data-color="#a78bfa" style="background:#a78bfa"></span>
+                <span class="avatar-color" data-color="#fb923c" style="background:#fb923c"></span>
+                <span class="avatar-color" data-color="#22d3ee" style="background:#22d3ee"></span>
+                <span class="avatar-color" data-color="#e879f9" style="background:#e879f9"></span>
+                <span class="avatar-color" data-color="#ef4444" style="background:#ef4444"></span>
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-outline" id="moduleCancel">取消</button>
+              <button type="submit" class="btn btn-primary">保存模块</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 教程中心 ==================== -->
+  <section class="section section-alt" id="tutorials">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">TUTORIAL CENTER</span>
+        <h2 class="section-title">教程中心</h2>
+        <p class="section-desc">搜索并筛选你需要的教程，按难度和分类精准定位</p>
+      </div>
+      <div class="tutorial-controls">
+        <div class="tutorial-top-row">
+          <input type="text" class="search-input" id="searchInput" placeholder="🔍 搜索教程：建模 / 动画 / 渲染 / 绑定...">
+          <button class="btn btn-add" id="addTutorialBtn">＋ 添加教程</button>
+        </div>
+        <div class="filter-btns" id="filterBtns">
+          <button class="filter-btn active" data-filter="all">全部</button>
+          <button class="filter-btn" data-filter="入门">入门</button>
+          <button class="filter-btn" data-filter="建模">建模</button>
+          <button class="filter-btn" data-filter="材质">材质</button>
+          <button class="filter-btn" data-filter="绑定">绑定</button>
+          <button class="filter-btn" data-filter="动画">动画</button>
+          <button class="filter-btn" data-filter="渲染">渲染</button>
+          <button class="filter-btn" data-filter="特效">特效</button>
+          <button class="filter-btn" data-filter="脚本">脚本</button>
+        </div>
+      </div>
+      <div class="tutorial-grid" id="tutorialGrid"></div>
+      <p class="empty-msg" id="emptyMsg" style="display:none">没有找到匹配的教程，试试其他关键词吧~</p>
+
+      <!-- 添加/编辑教程弹窗 -->
+      <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 id="modalTitle">添加新教程</h3>
+            <button class="modal-close" id="modalClose">✕</button>
+          </div>
+          <form id="tutorialForm" class="modal-form">
+            <input type="hidden" id="editId" value="">
+            <div class="form-group">
+              <label for="tutTitle">教程标题 <span class="required">*</span></label>
+              <input type="text" id="tutTitle" placeholder="例如：Maya 粒子特效入门" required>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="tutCat">分类 <span class="required">*</span></label>
+                <select id="tutCat" required>
+                  <option value="">选择分类</option>
+                  <option value="入门">入门</option>
+                  <option value="建模">建模</option>
+                  <option value="材质">材质</option>
+                  <option value="渲染">渲染</option>
+                  <option value="绑定">绑定</option>
+                  <option value="动画">动画</option>
+                  <option value="特效">特效</option>
+                  <option value="脚本">脚本</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="tutLevel">难度 <span class="required">*</span></label>
+                <select id="tutLevel" required>
+                  <option value="">选择难度</option>
+                  <option value="初级">初级</option>
+                  <option value="中级">中级</option>
+                  <option value="进阶">进阶</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="tutDesc">简要描述</label>
+              <input type="text" id="tutDesc" placeholder="一句话描述教程内容">
+            </div>
+            <div class="form-group">
+              <label for="tutLink">教程链接 <span class="required">*</span></label>
+              <input type="url" id="tutLink" placeholder="https://www.bilibili.com/video/..." required>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-outline" id="modalCancel">取消</button>
+              <button type="submit" class="btn btn-primary" id="modalSubmit">保存教程</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 学习路线图 ==================== -->
+  <section class="section" id="roadmap">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">LEARNING ROADMAP</span>
+        <h2 class="section-title">30天学习路线</h2>
+        <p class="section-desc">每天打卡，进度自动保存，见证你的成长</p>
+      </div>
+      <div class="roadmap-progress">
+        <div class="progress-info">
+          <span id="progressLabel">完成进度：0%</span>
+          <span id="progressDetail">0/30 天</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+      </div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 错题集 ==================== -->
+  <section class="section section-alt" id="mistakes">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">MISTAKE BOOK</span>
+        <h2 class="section-title">错题集</h2>
+        <p class="section-desc">记录学习中的错误，避免重复犯错，支持上传截图和文件</p>
+      </div>
+      <div class="mistake-controls">
+        <div class="mistake-top-row">
+          <input type="text" class="search-input" id="mistakeSearch" placeholder="🔍 搜索错题：关键词 / 科目 / 标签...">
+          <button class="btn btn-add" id="addMistakeBtn">＋ 添加错题</button>
+        </div>
+        <div class="filter-btns" id="mistakeFilterBtns">
+          <button class="filter-btn active" data-filter="all">全部</button>
+          <button class="filter-btn" data-filter="建模">建模</button>
+          <button class="filter-btn" data-filter="材质">材质</button>
+          <button class="filter-btn" data-filter="渲染">渲染</button>
+          <button class="filter-btn" data-filter="绑定">绑定</button>
+          <button class="filter-btn" data-filter="动画">动画</button>
+          <button class="filter-btn" data-filter="特效">特效</button>
+          <button class="filter-btn" data-filter="脚本">脚本</button>
+          <button class="filter-btn" data-filter="其他">其他</button>
+        </div>
+      </div>
+      <div class="mistake-stats-row">
+        <div class="mistake-stat-card"><span class="ms-num" id="msTotal">0</span><span class="ms-label">总错题</span></div>
+        <div class="mistake-stat-card ms-mastered"><span class="ms-num" id="msMastered">0</span><span class="ms-label">已掌握</span></div>
+        <div class="mistake-stat-card ms-pending"><span class="ms-num" id="msPending">0</span><span class="ms-label">待复习</span></div>
+      </div>
+      <div class="mistake-grid" id="mistakeGrid"></div>
+      <p class="empty-msg" id="mistakeEmptyMsg" style="display:none">还没有错题记录，点击上方「添加错题」开始记录吧~</p>
+
+      <!-- 添加/编辑错题弹窗 -->
+      <div class="modal-overlay" id="mistakeModalOverlay">
+        <div class="modal modal-lg">
+          <div class="modal-header">
+            <h3 id="mistakeModalTitle">添加错题</h3>
+            <button class="modal-close" id="mistakeModalClose">✕</button>
+          </div>
+          <form id="mistakeForm" class="modal-form">
+            <input type="hidden" id="mistakeEditId" value="">
+            <div class="form-group">
+              <label for="mkSubject">科目分类 <span class="required">*</span></label>
+              <select id="mkSubject" required>
+                <option value="">选择科目</option>
+                <option value="建模">建模</option>
+                <option value="材质">材质</option>
+                <option value="渲染">渲染</option>
+                <option value="绑定">绑定</option>
+                <option value="动画">动画</option>
+                <option value="特效">特效</option>
+                <option value="脚本">脚本</option>
+                <option value="其他">其他</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="mkQuestion">题目 / 错误描述 <span class="required">*</span></label>
+              <textarea id="mkQuestion" rows="3" placeholder="描述你做错的题目或犯的错误..." required></textarea>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="mkWrongAnswer">你的错误答案</label>
+                <textarea id="mkWrongAnswer" rows="2" placeholder="你当时是怎么做的..."></textarea>
+              </div>
+              <div class="form-group">
+                <label for="mkCorrectAnswer">正确答案</label>
+                <textarea id="mkCorrectAnswer" rows="2" placeholder="正确做法是什么..."></textarea>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="mkNote">备注 / 心得</label>
+              <input type="text" id="mkNote" placeholder="为什么会错？下次如何避免？">
+            </div>
+            <div class="form-group">
+              <label>附件上传（截图/文件）</label>
+              <div class="file-upload-area" id="mkFileArea">
+                <input type="file" id="mkFileInput" multiple accept="image/*,.pdf,.doc,.docx,.txt,.py,.mel,.ma,.mb,.obj,.fbx">
+                <div class="file-upload-hint">
+                  <span>📎 点击或拖拽文件到此处</span>
+                  <small>支持图片、PDF、文档、脚本、3D文件（单个文件≤5MB）</small>
+                </div>
+              </div>
+              <div class="file-list" id="mkFileList"></div>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-outline" id="mistakeModalCancel">取消</button>
+              <button type="submit" class="btn btn-primary">保存错题</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 作业存储 ==================== -->
+  <section class="section" id="homework">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">HOMEWORK STORAGE</span>
+        <h2 class="section-title">作业存储</h2>
+        <p class="section-desc">上传和管理你的作业文件，追踪提交状态</p>
+      </div>
+      <div class="mistake-controls">
+        <div class="mistake-top-row">
+          <input type="text" class="search-input" id="hwSearch" placeholder="🔍 搜索作业：名称 / 科目...">
+          <button class="btn btn-add" id="addHwBtn">＋ 添加作业</button>
+        </div>
+        <div class="filter-btns" id="hwFilterBtns">
+          <button class="filter-btn active" data-filter="all">全部</button>
+          <button class="filter-btn" data-filter="未开始">未开始</button>
+          <button class="filter-btn" data-filter="进行中">进行中</button>
+          <button class="filter-btn" data-filter="已提交">已提交</button>
+          <button class="filter-btn" data-filter="已批改">已批改</button>
+        </div>
+      </div>
+      <div class="hw-stats-row">
+        <div class="mistake-stat-card"><span class="ms-num" id="hwTotal">0</span><span class="ms-label">总作业</span></div>
+        <div class="mistake-stat-card ms-mastered"><span class="ms-num" id="hwDone">0</span><span class="ms-label">已提交</span></div>
+        <div class="mistake-stat-card ms-pending"><span class="ms-num" id="hwTodo">0</span><span class="ms-label">未完成</span></div>
+      </div>
+      <div class="hw-grid" id="hwGrid"></div>
+      <p class="empty-msg" id="hwEmptyMsg" style="display:none">还没有作业记录，点击上方「添加作业」开始管理吧~</p>
+
+      <!-- 添加/编辑作业弹窗 -->
+      <div class="modal-overlay" id="hwModalOverlay">
+        <div class="modal modal-lg">
+          <div class="modal-header">
+            <h3 id="hwModalTitle">添加作业</h3>
+            <button class="modal-close" id="hwModalClose">✕</button>
+          </div>
+          <form id="hwForm" class="modal-form">
+            <input type="hidden" id="hwEditId" value="">
+            <div class="form-group">
+              <label for="hwTitle">作业名称 <span class="required">*</span></label>
+              <input type="text" id="hwTitle" placeholder="例如：Maya 角色建模作业" required>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="hwSubject">科目 <span class="required">*</span></label>
+                <select id="hwSubject" required>
+                  <option value="">选择科目</option>
+                  <option value="建模">建模</option>
+                  <option value="材质">材质</option>
+                  <option value="渲染">渲染</option>
+                  <option value="绑定">绑定</option>
+                  <option value="动画">动画</option>
+                  <option value="特效">特效</option>
+                  <option value="脚本">脚本</option>
+                  <option value="其他">其他</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="hwStatus">状态</label>
+                <select id="hwStatus">
+                  <option value="未开始">未开始</option>
+                  <option value="进行中">进行中</option>
+                  <option value="已提交">已提交</option>
+                  <option value="已批改">已批改</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="hwDeadline">截止日期</label>
+                <input type="date" id="hwDeadline">
+              </div>
+              <div class="form-group">
+                <label for="hwScore">得分</label>
+                <input type="text" id="hwScore" placeholder="批改后填写">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="hwDesc">作业描述</label>
+              <textarea id="hwDesc" rows="2" placeholder="作业要求和说明..."></textarea>
+            </div>
+            <div class="form-group">
+              <label>上传作业文件</label>
+              <div class="file-upload-area" id="hwFileArea">
+                <input type="file" id="hwFileInput" multiple accept="image/*,.pdf,.doc,.docx,.txt,.py,.mel,.ma,.mb,.obj,.fbx,.zip,.rar">
+                <div class="file-upload-hint">
+                  <span>📎 点击或拖拽文件到此处</span>
+                  <small>支持图片、文档、脚本、3D文件、压缩包（单个文件≤5MB）</small>
+                </div>
+              </div>
+              <div class="file-list" id="hwFileList"></div>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-outline" id="hwModalCancel">取消</button>
+              <button type="submit" class="btn btn-primary">保存作业</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- 作业详情查看弹窗 -->
+      <div class="modal-overlay" id="hwDetailOverlay">
+        <div class="modal modal-lg">
+          <div class="modal-header">
+            <h3 id="hwDetailTitle">作业详情</h3>
+            <button class="modal-close" id="hwDetailClose">✕</button>
+          </div>
+          <div class="hw-detail-body" id="hwDetailBody"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 动画十二法则 ==================== -->
+  <section class="section section-alt" id="principles">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">12 PRINCIPLES</span>
+        <h2 class="section-title">动画十二法则</h2>
+        <p class="section-desc">迪士尼经典法则——每个动画师的必修课</p>
+      </div>
+      <div class="principles-grid" id="principlesGrid"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 快捷键 & 资源 ==================== -->
+  <section class="section" id="resources">
+    <div class="container">
+      <div class="resources-layout">
+        <!-- 快捷键 -->
+        <div class="res-panel">
+          <h2 class="res-title">⌨️ Maya 必备快捷键</h2>
+          <div class="shortcut-list" id="shortcutList"></div>
+        </div>
+        <!-- 资源推荐 -->
+        <div class="res-panel">
+          <h2 class="res-title">📚 学习资源推荐</h2>
+          <div class="resource-list" id="resourceList"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== Footer ==================== -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="logo-icon">◆</span> 3D动画学院
+        <p class="footer-desc">让每一个人都能学会三维动画</p>
+      </div>
+      <div class="footer-links">
+        <a href="#home">首页</a>
+        <a href="#modules">学习模块</a>
+        <a href="#tutorials">教程中心</a>
+        <a href="#roadmap">学习路线</a>
+      </div>
+      <div class="footer-copy">
+        © <span id="footerYear"></span> 3D动画学院 · 用 ❤️ 和代码构建
+      </div>
+    </div>
+  </footer>
+
+  <!-- 回到顶部 -->
+  <button class="back-top" id="backTop" title="回到顶部">↑</button>
+
+  <script src="script.js"></script>
+</body>
+</html>
