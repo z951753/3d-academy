@@ -1,1 +1,1 @@
-{"version": 2, "trailingSlash": false, "cleanUrls": true, "routes": [{"src": "/api/(.*)", "dest": "/api/$1"}, {"src": "/(.*\\.js)", "dest": "/$1", "headers": {"Content-Type": "application/javascript"}}, {"src": "/(.*\\.css)", "dest": "/$1", "headers": {"Content-Type": "text/css"}}, {"src": "/(.*)", "dest": "/index.html"}]}
+{"version": 2, "buildCommand": null, "outputDirectory": ".", "installCommand": "npm install @supabase/supabase-js"}
