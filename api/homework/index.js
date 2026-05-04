@@ -67,7 +67,15 @@ module.exports = async function handler(req) {
       desc: body.desc||'', date: new Date().toLocaleDateString('zh-CN'),
       files: JSON.stringify(body.files||[]), created_at: new Date().toISOString()
     }]);
-    return json({ id: newId, message: '作业添加成功' }, 201);
+    // 返回完整对象
+    var newItem = {
+      id: newId, user_id: userId, title: body.title,
+      subject: body.subject, status: body.status||'未开始',
+      deadline: body.deadline||'', score: body.score||'',
+      desc: body.desc||'', date: new Date().toLocaleDateString('zh-CN'),
+      files: body.files||[], created_at: new Date().toISOString()
+    };
+    return json(newItem, 201);
   }
 
   if (req.method === 'PUT' && id) {
@@ -77,6 +85,12 @@ module.exports = async function handler(req) {
       score: body.score||'', desc: body.desc||'',
       files: JSON.stringify(body.files||[])
     }).eq('id', id).eq('user_id', userId);
+    // 查询并返回更新后的完整对象
+    const { data: updated } = await supabase.from('homework').select('*').eq('id', id).maybeSingle();
+    if (updated) {
+      updated.files = parseJsonSafe(updated.files);
+      return json(updated);
+    }
     return json({ message: '作业已更新' });
   }
 

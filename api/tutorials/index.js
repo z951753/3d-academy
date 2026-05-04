@@ -80,7 +80,11 @@ module.exports = async function handler(req) {
       cat: body.cat, level: body.level, desc: body.desc||'', link: body.link,
       builtin: 0, created_at: new Date().toISOString()
     }]);
-    return json({ id: newId, message: '教程添加成功' }, 201);
+    return json({
+      id: newId, user_id: userId, title: body.title,
+      cat: body.cat, level: body.level, desc: body.desc||'',
+      link: body.link, builtin: 0, created_at: new Date().toISOString()
+    }, 201);
   }
 
   if (req.method === 'PUT' && id) {

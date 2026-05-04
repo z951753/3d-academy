@@ -67,7 +67,7 @@
         <div class="form-group">
           <label for="authEmail">邮箱 <span class="required">*</span></label>
           <div class="email-row">
-            <input type="email" id="authEmail" placeholder="your@email.com" required>
+            <input type="email" id="authEmail" placeholder="输入邮箱即可登录/注册" required>
             <button type="button" class="btn btn-send-code" id="sendCodeBtn" style="display:none">发送验证码</button>
           </div>
         </div>
@@ -76,7 +76,7 @@
           <label for="authCode">邮箱验证码 <span class="required">*</span></label>
           <input type="text" id="authCode" placeholder="请输入6位验证码" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
         </div>
-        <div class="form-group">
+        <div class="form-group" id="authPasswordGroup" style="display:none">
           <label for="authPassword">密码 <span class="required">*</span></label>
           <input type="password" id="authPassword" placeholder="至少6位密码" required minlength="6">
         </div>
@@ -486,6 +486,40 @@
         <h2 class="section-title">作业存储</h2>
         <p class="section-desc">上传和管理你的作业文件，追踪提交状态</p>
       </div>
+
+      <!-- 我的作业 / 社区广场 标签切换 -->
+      <div class="hw-tab-bar" id="hwTabBar">
+        <button class="hw-tab active" data-tab="mine">📁 我的作业</button>
+        <button class="hw-tab" data-tab="community">🌐 社区广场</button>
+      </div>
+
+      <!-- 社区广场视图（默认隐藏） -->
+      <div class="community-view" id="hwCommunityView" style="display:none">
+        <div class="mistake-controls">
+          <div class="mistake-top-row">
+            <input type="text" class="search-input" id="hwCommunitySearch" placeholder="🔍 搜索社区作品：名称 / 科目 / 作者...">
+          </div>
+          <div class="filter-btns" id="hwCommunityFilterBtns">
+            <button class="filter-btn active" data-filter="all">全部</button>
+            <button class="filter-btn" data-filter="建模">建模</button>
+            <button class="filter-btn" data-filter="材质">材质</button>
+            <button class="filter-btn" data-filter="渲染">渲染</button>
+            <button class="filter-btn" data-filter="动画">动画</button>
+            <button class="filter-btn" data-filter="绑定">绑定</button>
+          </div>
+        </div>
+        <div class="community-stats-row" id="communityStatsRow">
+          <span class="community-total-label">共 <strong id="communityTotal">0</strong> 份作品</span>
+        </div>
+        <div class="hw-grid community-grid" id="hwCommunityGrid"></div>
+        <p class="empty-msg" id="hwCommunityEmptyMsg" style="display:none">社区还没有作品，快来发布第一个吧~</p>
+        <div class="load-more-wrap" id="hwLoadMoreWrap" style="display:none">
+          <button class="btn btn-outline" id="hwLoadMoreBtn">加载更多 ↓</button>
+        </div>
+      </div>
+
+      <!-- 我的作业视图（原有内容） -->
+      <div class="my-hw-view" id="hwMyView">
       <div class="mistake-controls">
         <div class="mistake-top-row">
           <input type="text" class="search-input" id="hwSearch" placeholder="🔍 搜索作业：名称 / 科目...">
@@ -506,8 +540,9 @@
       </div>
       <div class="hw-grid" id="hwGrid"></div>
       <p class="empty-msg" id="hwEmptyMsg" style="display:none">还没有作业记录，点击上方「添加作业」开始管理吧~</p>
+      </div><!-- /my-hw-view -->
 
-      <!-- 添加/编辑作业弹窗 -->
+      <!-- 添加/编辑作业弹窗（两个视图共用） -->
       <div class="modal-overlay" id="hwModalOverlay">
         <div class="modal modal-lg">
           <div class="modal-header">
@@ -618,6 +653,106 @@
           <div class="resource-list" id="resourceList"></div>
         </div>
       </div>
+
+      <!-- ===== 素材存储区 ===== -->
+      <div class="assets-section" id="assetsSection" style="margin-top:40px;">
+        <div class="section-header" style="margin-bottom:24px;">
+          <span class="section-tag">ASSET LIBRARY</span>
+          <h2 class="section-title" style="font-size:26px;">📦 素材存储</h2>
+          <p class="section-desc">上传和管理你的3D素材文件：模型(.fbx/.obj/.ma/.mb)、贴图、参考图等</p>
+        </div>
+
+        <!-- 操作栏 -->
+        <div="assets-toolbar">
+          <div class="assets-search-row">
+            <input type="text" class="search-input" id="assetSearch" placeholder="🔍 搜索素材名称..." style="max-width:300px;">
+            <div class="filter-btns" id="assetFilterBtns">
+              <button class="filter-btn active" data-filter="all">全部</button>
+              <button class="filter-btn" data-filter="模型">模型</button>
+              <button class="filter-btn" data-filter="贴图">贴图</button>
+              <button class="filter-btn" data-filter="图片">图片</button>
+              <button class="filter-btn" data-filter="脚本">脚本</button>
+              <button class="filter-btn" data-filter="其他">其他</button>
+            </div>
+          </div>
+          <button class="btn btn-add" id="addAssetBtn">📤 上传素材</button>
+        </div>
+
+        <!-- 统计信息 -->
+        <div class="hw-stats-row" style="margin-bottom:20px;">
+          <div class="mistake-stat-card"><span class="ms-num" id="assetTotal">0</span><span class="ms-label">总素材</span></div>
+          <div class="mistake-stat-card ms-mastered"><span class="ms-num" id="assetSize">0 KB</span><span class="ms-label">总大小</span></div>
+          <div class="mistake-stat-card ms-pending"><span class="ms-num" id="assetTypes">0</span><span class="ms-label">类型数</span></div>
+        </div>
+
+        <!-- 素材网格 -->
+        <div class="assets-grid" id="assetsGrid"></div>
+        <p class="empty-msg" id="assetEmptyMsg" style="display:none">还没有素材，点击上方「上传素材」添加吧~</p>
+
+        <!-- 上传弹窗 -->
+        <div class="modal-overlay" id="assetModalOverlay">
+          <div class="modal modal-lg">
+            <div class="modal-header">
+              <h3 id="assetModalTitle">上传新素材</h3>
+              <button class="modal-close" id="assetModalClose">✕</button>
+            </div>
+            <form id="assetForm" class="modal-form">
+              <input type="hidden" id="assetEditId" value="">
+              <div class="form-group">
+                <label for="assetName">素材名称 <span class="required">*</span></label>
+                <input type="text" id="assetName" placeholder="例如：角色模型_v01" required>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="assetCategory">分类 <span class="required">*</span></label>
+                  <select id="assetCategory" required>
+                    <option value="">选择分类</option>
+                    <option value="模型">模型 (FBX/OBJ/MA/MB)</option>
+                    <option value="贴图">贴图 (PNG/JPG/TIF)</option>
+                    <option value="图片">参考图片</option>
+                    <option value="脚本">脚本 (PY/MEL)</option>
+                    <option value="其他">其他</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="assetTags">标签</label>
+                  <input type="text" id="assetTags" placeholder="角色, 建模, 绑定（逗号分隔）">
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="assetDesc">描述</label>
+                <textarea id="assetDesc" rows="2" placeholder="简要描述这个素材的用途..."></textarea>
+              </div>
+              <div class="form-group">
+                <label>选择文件 <span class="required">*</span></label>
+                <div class="file-upload-area" id="assetFileArea">
+                  <input type="file" id="assetFileInput" accept="image/*,.fbx,.obj,.ma,.mb,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.psd,.py,.mel,.zip,.rar,.glb,.gltf,.abc,.usda,.usdz,.stp,.step">
+                  <div class="file-upload-hint">
+                    <span>📎 点击或拖拽文件到此处</span>
+                    <small>支持 FBX, OBJ, MA, MB, GLB, 图片, 脚本等格式（单个≤10MB）</small>
+                  </div>
+                </div>
+                <div class="file-list" id="assetFileList"></div>
+              </div>
+              <div class="modal-actions">
+                <button type="button" class="btn btn-outline" id="assetModalCancel">取消</button>
+                <button type="submit" class="btn btn-primary">保存素材</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- 素材详情预览弹窗 -->
+        <div class="modal-overlay" id="assetDetailOverlay">
+          <div class="modal modal-lg asset-detail-modal">
+            <div class="modal-header">
+              <h3 id="assetDetailTitle">素材详情</h3>
+              <button class="modal-close" id="assetDetailClose">✕</button>
+            </div>
+            <div class="asset-detail-body" id="assetDetailBody"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -636,6 +771,15 @@
       </div>
       <div class="footer-copy">
         © <span id="footerYear"></span> 3D动画学院 · 用 ❤️ 和代码构建
+      </div>
+    </div>
+    <!-- 地蛋设计防伪 -->
+    <div class="design-mark">
+      <div class="design-mark-inner">
+        <span class="dm-icon">🥚</span>
+        <span class="dm-text">Designed by <strong>地蛋</strong></span>
+        <span class="dm-sep">|</span>
+        <span class="dm-code" title="防伪码" id="antiFakeCode">--</span>
       </div>
     </div>
   </footer>

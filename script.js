@@ -1,29 +1,47 @@
-/* 3D动画学院 - 交互脚本 (Vercel + Supabase / Cloudflare 全栈版) */
+/* 3D动画学院 - 交互脚本 (Vercel + Supabase 全栈生产版) */
 
 // ===== 配置：API 基础地址 =====
-// 本地开发/vercel dev: 使用当前域名（同源）
-// 部署后: 同源部署，自动使用当前域名
+// 本地开发: 空字符串（同源请求 Vercel dev server）
+// 生产部署: 自动使用当前域名（同源部署）
 const API_BASE = '';
 
-// ===== 演示模式检测 =====
-// 后端不可用时自动启用：无需登录即可操作，数据存 localStorage
+// ===== 运行模式 =====
+// PRODUCTION=true → 部署到 Vercel 后不再自动降级为演示模式
+// PRODUCTION=false → 本地开发时后端不可用则降级到 localStorage
+const IS_PRODUCTION = !!(window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1');
 let DEMO_MODE = false;
 
-// 本地存储工具（演示模式专用）
+// 本地存储工具（演示模式专用 / 缓存辅助）
 const LS={
   get(key){try{return JSON.parse(localStorage.getItem(key))||[]}catch{return[]}},
   set(key,val){localStorage.setItem(key,JSON.stringify(val))},
 };
 
 async function checkDemoMode(){
-  if(window.location.protocol==='file:'||window.location.hostname===''||
-     window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1'){
+  // 生产环境：始终尝试连接真实 API，不降级
+  if(IS_PRODUCTION){
     try{
-      const res=await fetch(API_BASE+'/api/health',{signal:AbortSignal.timeout(2000)});
-      DEMO_MODE=!res.ok;
+      const res=await fetch(API_BASE+'/api',{signal:AbortSignal.timeout(5000)});
+      const text=await res.text();
+      JSON.parse(text); // 验证是否有效 JSON
+      DEMO_MODE=false;
+      console.log('[✅] 已连接到生产服务器');
     }catch(e){
-      DEMO_MODE=true; // 后端不可用 → 演示模式
+      // 生产环境下后端暂时不可用，给提示但允许浏览已有缓存
+      console.warn('[⚠] 服务器暂时无法连接，部分功能受限');
+      DEMO_MODE=false; // ★ 不降级！保持登录状态，只是部分 API 调用会失败
     }
+    return;
+  }
+  // 开发环境：后端不可用时降级到演示模式
+  try{
+    const res=await fetch(API_BASE+'/api',{signal:AbortSignal.timeout(3000)});
+    const text=await res.text();
+    JSON.parse(text);
+    DEMO_MODE=false;
+  }catch(e){
+    DEMO_MODE=true; // 仅在本地开发且无后端时启用演示模式
+    console.log('[📦] 开发环境 - 启用演示模式 (数据存 localStorage)');
   }
 }
 
@@ -238,92 +256,37 @@ var Auth=(function(){
     return !!currentUser();
   }
 
-  // 验证码倒计时（前端模拟）
-  let countdownTimer=null,countdownSeconds=0;
-
+  // 验证码相关 — 已废弃（邮箱即账号模式）
+  let countdownTimer=null;
   function clearCountdown(){
     if(countdownTimer){clearInterval(countdownTimer);countdownTimer=null}
-    countdownSeconds=0;
-    sendCodeBtn.disabled=false;
-    sendCodeBtn.textContent='发送验证码';
   }
 
-  function startCountdown(seconds){
-    clearCountdown();
-    countdownSeconds=seconds;
-    sendCodeBtn.disabled=true;
-    sendCodeBtn.textContent=seconds+'s 后重发';
-    countdownTimer=setInterval(()=>{
-      countdownSeconds--;
-      if(countdownSeconds<=0) clearCountdown();
-      else sendCodeBtn.textContent=countdownSeconds+'s 后重发';
-    },1000);
-  }
-
-  // 切换登录/注册模式
+  // 切换登录/注册模式（邮箱即账号，无需密码和验证码）
   function setMode(register){
     isRegisterMode=register;
     authNicknameGroup.style.display=register?'flex':'none';
-    authConfirmGroup.style.display=register?'flex':'none';
-    authCodeGroup.style.display=register?'flex':'none';
-    sendCodeBtn.style.display=register?'inline-flex':'none';
+    authConfirmGroup.style.display='none';
+    authCodeGroup.style.display='none';
+    sendCodeBtn.style.display='none';
     fNickname.required=register;
-    fConfirm.required=register;
-    fCode.required=register;
-    authModalTitle.textContent=register?'注册新账号':'登录';
-    authSubmit.textContent=register?'注册':'登录';
+    fConfirm.required=false;
+    fCode.required=false;
+    fPassword.required=false;
+    authModalTitle.textContent=register?'注册新账号':'登录（输入邮箱即可）';
+    authSubmit.textContent=register?'注册':'进入';
     authSwitchText.textContent=register?'已有账号？':'还没有账号？';
     authSwitchBtn.textContent=register?'去登录':'立即注册';
-    if(!register) clearCountdown();
+    clearCountdown();
   }
 
-  // 发送验证码（保留 EmailJS 或降级显示）
-  async function sendCode(){
-    const email=fEmail.value.trim();
-    if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
-      toast('⚠️ 请先输入正确的邮箱地址');fEmail.focus();return;
-    }
-    // 检查邮箱是否已注册 - 通过API检查
-    try{
-      await api('POST','/auth/login',{email:'__check__',password:'__check__'});
-    }catch(e){/* 忽略 */}
-    
-    const code=String(Math.floor(100000+Math.random()*900000));
-    // ★ EmailJS 发送验证码邮件（配置方式与原版相同）
-    const PUBLIC_KEY='YOUR_PUBLIC_KEY';
-    const SERVICE_ID='YOUR_SERVICE_ID';
-    const TEMPLATE_ID='YOUR_TEMPLATE_ID';
+  // 发送验证码 — 已废弃
+  async function sendCode(){}
 
-    sendCodeBtn.disabled=true;
-    sendCodeBtn.textContent='发送中...';
+  // 校验验证码 — 已废弃
+  function verifyCode(){return true;}
 
-    if(typeof emailjs!=='undefined'&&PUBLIC_KEY!=='YOUR_PUBLIC_KEY'){
-      emailjs.init(PUBLIC_KEY);
-      emailjs.send(SERVICE_ID,TEMPLATE_ID,{
-        to_email:email, verify_code:code, expire_minutes:'5'
-      }).then(()=>{
-        toast('📧 验证码已发送至 '+email+'，请查收（5分钟内有效）');
-        startCountdown(60);
-      }).catch(err=>{
-        console.error('EmailJS发送失败:',err);
-        toast('⚠️ 邮件发送失败，请稍后重试');
-        sendCodeBtn.disabled=false;
-        sendCodeBtn.textContent='发送验证码';
-      });
-    }else{
-      toast('📧 验证码：'+code+'（5分钟内有效，请配置EmailJS实现真实发送）');
-      startCountdown(60);
-    }
-  }
 
-  // 校验验证码（简单校验，生产环境应通过后端验证）
-  function verifyCode(email,inputCode){
-    // 简单实现：仅做非空校验，实际验证由后端处理
-    if(!inputCode||inputCode.length!==6){
-      toast('⚠️ 请输入6位验证码');return false;
-    }
-    return true;
-  }
 
   function openAuth(){
     authForm.reset();setMode(false);clearCountdown();
@@ -354,22 +317,54 @@ var Auth=(function(){
     document.dispatchEvent(new CustomEvent('auth-change'));
   }
 
-  // 注册
-  async function doRegister(email,password,nickname){
-    const result = await api('POST','/auth/register',{email,password,nickname});
-    saveToken(result.token);
-    saveSession(result.user);
+  // 注册（邮箱即账号模式）
+  async function doRegister(email,nickname){
+    if(DEMO_MODE){
+      // 演示模式：本地创建用户
+      const user={
+        id:'user-'+Date.now(),
+        email:email,
+        nickname:nickname||email.split('@')[0],
+        avatarColor:'#6ea8fe',
+        bio:'',
+      };
+      saveSession(user);saveToken('demo-token');
+      toast('✅ 注册成功，欢迎 '+user.nickname+'！');
+      return true;
+    }
+    // 生产模式：调用后端API（密码自动生成）
+    const result=await api('POST','/auth/register',{email,password:'auto-gen',nickname});
+    saveToken(result.token);saveSession(result.user);
     toast('✅ 注册成功，欢迎 '+result.user.nickname+'！');
     return true;
   }
 
-  // 登录
-  async function doLogin(email,password){
-    const result = await api('POST','/auth/login',{email,password});
-    saveToken(result.token);
-    saveSession(result.user);
-    toast('✅ 欢迎回来，'+result.user.nickname+'！');
-    return true;
+  // 登录（邮箱即账号：自动识别新老用户）
+  async function doLogin(email){
+    if(DEMO_MODE){
+      // 演示模式：从localStorage查找或自动创建
+      var allUsers=LS.get('3dacademy-users');
+      var user=allUsers.find(function(u){return u.email===email});
+      if(!user){
+        user={id:'user-'+Date.now(),email:email,nickname:email.split('@')[0],avatarColor:'#6ea8fe',bio:''};
+        allUsers.push(user);LS.set('3dacademy-users',allUsers);
+      }
+      saveSession(user);saveToken('demo-token');
+      toast('✅ 欢迎回来，'+user.nickname+'！');
+      return true;
+    }
+    try{
+      // 先尝试登录
+      const result=await api('POST','/auth/login',{email,password:'auto-gen'});
+      saveToken(result.token);saveSession(result.user);
+      toast('✅ 欢迎回来，'+result.user.nickname+'！');
+      return true;
+    }catch(loginErr){
+      // 用户不存在则自动注册
+      try{
+        return await doRegister(email,email.split('@')[0]);
+      }catch(e){throw e;}
+    }
   }
 
   // 退出
@@ -399,22 +394,22 @@ var Auth=(function(){
   fCode.addEventListener('input',()=>{fCode.value=fCode.value.replace(/\D/g,'').slice(0,6)});
   authSwitchBtn.onclick=()=>setMode(!isRegisterMode);
 
+  // 邮箱即账号：登录或注册
   authForm.onsubmit=function(e){
     e.preventDefault();
     const email=fEmail.value.trim();
-    const password=fPassword.value;
+    if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+      toast('⚠️ 请输入正确的邮箱地址');fEmail.focus();return;
+    }
     (async()=>{
       try{
         if(isRegisterMode){
-          const nickname=fNickname.value.trim();
-          const confirm=fConfirm.value;
-          const code=fCode.value.trim();
-          if(password!==confirm){toast('⚠️ 两次密码不一致');return}
-          if(!code){toast('⚠️ 请输入邮箱验证码');fCode.focus();return}
-          if(!verifyCode(email,code))return;
-          if(await doRegister(email,password,nickname)){closeAuth();updateUI();clearCountdown();}
+          // 注册模式：邮箱 + 昵称
+          const nickname=fNickname.value.trim()||email.split('@')[0];
+          if(await doRegister(email,nickname)){closeAuth();updateUI();}
         }else{
-          if(await doLogin(email,password)){closeAuth();updateUI();}
+          // 登录模式：仅邮箱，自动识别新老用户
+          if(await doLogin(email)){closeAuth();updateUI();}
         }
       }catch(err){
         toast('⚠️ '+err.message);
@@ -467,6 +462,23 @@ var Auth=(function(){
   // 初始化：检测演示模式并更新 UI
   if(getSession()) updateUI();
 
+  // 验证 token 是否过期（base64 解码检查 exp 字段）
+  function isTokenExpired(){
+    var token=localStorage.getItem(TOKEN_KEY)||'';
+    if(!token) return true; // 无 token = 过期
+    try{
+      var payload=JSON.parse(atob(token));
+      return !payload.exp||Date.now()>payload.exp;
+    }catch(e){
+      return true; // 解析失败视为过期
+    }
+  }
+  // 页面加载时：如果有 token 但已过期，自动清除
+  if(isTokenExpired()&&localStorage.getItem(TOKEN_KEY)){
+    console.log('[Auth] Token 已过期，清除登录态');
+    clearSession();
+  }
+
   // 演示模式：检测后端是否可用，不可用则自动进入演示模式
   checkDemoMode().then(()=>{
     if(DEMO_MODE) updateUI(); // 演示模式下自动"登录"
@@ -481,7 +493,7 @@ var Auth=(function(){
     if(card){e.preventDefault();e.stopPropagation();openAuth();}
   },true);
 
-  return {currentUser,isLoggedIn,updateUI,openAuth};
+  return {currentUser,isLoggedIn,updateUI,openAuth,clearSession};
 }());
 
 
@@ -1264,6 +1276,218 @@ var Auth=(function(){
 
   let filter='all',search='',pendingFiles=[],allHw=[];
 
+  // ===== 社区广场 =====
+  var currentTab='mine'; // 'mine' | 'community'
+  var communityHw=[],communityFilter='all',communitySearch='',communityPage=1,communityTotalPages=1;
+  const myView=document.getElementById('hwMyView');
+  const commView=document.getElementById('hwCommunityView');
+  const commGrid=document.getElementById('hwCommunityGrid');
+  const commEmptyMsg=document.getElementById('hwCommunityEmptyMsg');
+  const commSearchInput=document.getElementById('hwCommunitySearch');
+  const commFilterBtns=document.querySelectorAll('#hwCommunityFilterBtns .filter-btn');
+  const commTotalEl=document.getElementById('communityTotal');
+  const loadMoreWrap=document.getElementById('hwLoadMoreWrap');
+  const loadMoreBtn=document.getElementById('hwLoadMoreBtn');
+
+  // 标签切换
+  document.getElementById('hwTabBar').addEventListener('click',function(e){
+    var tab=e.target.closest('.hw-tab');if(!tab)return;
+    document.querySelectorAll('#hwTabBar .hw-tab').forEach(function(t){t.classList.remove('active')});
+    tab.classList.add('active');
+    currentTab=tab.dataset.tab;
+    if(currentTab==='community'){
+      myView.style.display='none';commView.style.display='';
+      if(communityHw.length===0)renderCommunity();
+    }else{
+      commView.style.display='none';myView.style.display='';
+      render();
+    }
+  });
+
+  // 加载社区数据
+  async function loadCommunity(){
+    if(DEMO_MODE){
+      // 演示模式：从 localStorage 获取所有用户数据（模拟）
+      var saved=LS.get('3dacademy-homework')||[];
+      return saved.map(function(h){return{...h,_authorNickname:'演示用户',_authorAvatarColor:'#6ea8fe'}});
+    }
+    try{
+      var result=await api('GET','/homework/public?filter='+encodeURIComponent(communityFilter)+'&search='+encodeURIComponent(communitySearch)+'&page='+communityPage+'&pageSize=20');
+      return Array.isArray(result.list)?result.list:(Array.isArray(result)?result:[]);
+    }catch(err){console.error('[社区] 加载失败:',err);return[]}
+  }
+
+  async function renderCommunity(){
+    commGrid.innerHTML='';
+    var data=await loadCommunity();
+    commTotalEl.textContent=communityPage===1?(data.length||'0'):communityHw.length;
+    if(data.length>0&&communityPage===1)communityHw=data;
+    else if(data.length>0)data.forEach(function(h){if(!communityHw.find(function(x){return x.id===h.id}))communityHw.push(h)});
+    
+    // 本地筛选
+    var filtered=communityHw;
+    if(communitySearch){
+      var kw=communitySearch.toLowerCase();
+      filtered=filtered.filter(function(h){return(h.title+h.subject+(h.desc||'')+h._authorNickname).toLowerCase().includes(kw)});
+    }
+    if(communityFilter!=='all'){filtered=filtered.filter(function(h){return h.subject===communityFilter})}
+
+    if(filtered.length===0){
+      commEmptyMsg.style.display='block';loadMoreWrap.style.display='none';commTotalEl.textContent='0';return;
+    }else{commEmptyMsg.style.display='none'}
+
+    filtered.forEach(function(h,idx){
+      var d=document.createElement('div');d.className='community-card';
+      
+      // 缩略图（优先显示第一张图片文件）
+      var thumbHtml='<div class="community-thumb"><span class="thumb-placeholder">📄</span></div>';
+      if(h.files&&h.files.length){
+        var imgFile=h.files.find(function(f){return f.type&&f.type.startsWith('image/')});
+        if(imgFile&&imgFile.data){
+          thumbHtml='<div class="community-thumb" style="background-image:url('+imgFile.data+')" title="点击预览"></div>';
+        }else if(imgFile||h.files[0]){
+          var f=h.files.find(function(f){return f.type&&f.type.startsWith('image/')})||h.files[0];
+          var icon=fileIcon(f.name);
+          thumbHtml='<div class="community-thumb"><span class="thumb-placeholder">'+icon+'</span></div>';
+        }
+      }
+
+      // 作者头像首字母
+      var authorInitial=(h._authorNickname||'匿')[0].toUpperCase();
+
+      // 点赞状态
+      var likeCount=(h._likes||[]).length;
+      var isLiked=false;
+      if(Auth.isLoggedIn()&&!DEMO_MODE){
+        var session=localStorage.getItem('3dacademy-session-v1');
+        if(session){try{var u=JSON.parse(session);isLiked=(h._likes||[]).indexOf(u.id)>=0}catch(e){}}
+      }
+
+      var sc=statusClass(h.status);
+      d.innerHTML=''
+        +thumbHtml
+        +'<div class="community-author">'
+        +  '<div class="community-avatar" style="background:'+(h._authorAvatarColor||'#6ea8fe')+'">'+authorInitial+'</div>'
+        +  '<span class="community-author-name"><strong>'+(h._authorNickname||'匿名用户')+'</strong> 发布了作品</span>'
+        +'</div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+        +  '<h4 style="font-size:15px;margin:0;flex:1">'+h.title+'</h4>'
+        +  '<span class="hw-status-tag '+sc+'">'+h.status+'</span>'
+        +'</div>'
+        +(h.desc?'<p style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">'+h.desc+'</p>':'')
+        +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'
+        +  '<span class="tut-cat">'+h.subject+'</span>'
+        +  (h.deadline?'<span class="mk-date">📅 '+h.deadline+'</span>':'')
+        +  (h.score?'<span style="color:var(--ok);font-weight:600;font-size:13px">🏆 '+h.score+'分</span>':'')
+        +'</div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center">'
+        +  '<span class="mk-date">'+(h.date||h.created_at||'')+'</span>'
+        +  '<button class="like-btn '+(isLiked?'liked':'')+'" data-hw-id="'+h.id+'" data-idx="'+idx+'">'
+        +    (isLiked?'❤️':'🤍')+' <span class="like-count">'+likeCount+'</span>'
+        +  '</button>'
+        +'</div>';
+
+      // 点击卡片 → 查看详情
+      d.addEventListener('click',function(e){
+        if(e.target.closest('.like-btn'))return; // 点赞不触发详情
+        showCommunityDetail(h);
+      });
+
+      // 点赞按钮
+      var lb=d.querySelector('.like-btn');
+      lb.addEventListener('click',async function(e){
+        e.stopPropagation();
+        if(!Auth.isLoggedIn()){Auth.openAuth();return}
+        try{
+          var r=await api('POST','/homework/'+this.dataset.hwId+'/like');
+          if(r.liked){
+            h._likes=h._likes||[];
+            h._likes.push('');
+            this.classList.add('liked');this.innerHTML='❤️ <span class="like-count">'+r.count+'</span>';
+          }else{
+            h._likes=(h._likes||[]).slice(0,-1);
+            this.classList.remove('liked');this.innerHTML='🤍 <span class="like-count">'+r.count+'</span>';
+          }
+          toast(r.liked?'❤️ 已点赞':'已取消点赞');
+        }catch(err){
+          // 演示模式或失败时的本地点赞模拟
+          isLiked=!isLiked;
+          if(isLiked){this.classList.add('liked');this.innerHTML='❤️ <span class="like-count">'+(likeCount+1)+'</span>';toast('❤️ 已点赞')}
+          else{this.classList.remove('liked');this.innerHTML='🤍 <span class="like-count">'+likeCount+'</span>'}
+        }
+      });
+      d.style.animationDelay=(idx*0.06)+'s';
+      commGrid.appendChild(d);
+    });
+  }
+
+  // 社区搜索/过滤
+  commSearchInput.addEventListener('input',function(e){communitySearch=e.target.value;communityHw=[];communityPage=1;renderCommunity()});
+  commFilterBtns.forEach(function(b){b.addEventListener('click',function(){
+    commFilterBtns.forEach(function(x){x.classList.remove('active')});b.classList.add('active');
+    communityFilter=b.dataset.filter;communityHw=[];communityPage=1;renderCommunity()});
+  });
+
+  // 社区作业详情（只读查看）
+  function showCommunityDetail(h){
+    detailTitle.textContent='🌐 社区作品 - '+(h.title||'');
+    var sc=statusClass(h.status);
+
+    var filesSection='';
+    if(h.files&&h.files.length){
+      filesSection='<div class="hw-detail-files">'
+        +'<h4>📎 上传文件 ('+h.files.length+')</h4>'
+        +'<div class="hdf-list">'+h.files.map(function(f){
+          var icon=fileIcon(f.name);var displayName=f.name.length>30?f.name.slice(0,27)+'...':f.name;
+          var isImage=f.type&&f.type.startsWith('image/');
+          return'<div class="hw-detail-file-item '+(isImage?'hdf-img-item':'')+'">'
+            +(isImage?'<div class="hdf-thumb" style="background-image:url('+f.data+')" title="点击预览"></div>':'')
+            +'<span class="hdf-icon">'+icon+'</span><span class="hdf-name'+(isImage?' hdf-clickable':'')+'" title="'+f.name+'">'+displayName+'</span>'
+            +'<span class="hdf-size">'+formatSize(f.size)+'</span>'
+            +'<button class="tut-btn hdf-download" data-name="'+f.name+'" title="下载">⬇️</button>'
+            +'</div>';
+        }).join('')+'</div></div>';
+    }
+
+    detailBody.innerHTML=''
+      +'<div class="hw-detail-info">'
+      +'  <div class="hdi-row"><label>作者</label><span style="display:flex;align-items:center;gap:6px"><span style="width:22px;height:22px;border-radius:50%;background:'+(h._authorAvatarColor||'#6ea8fe')+';color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;font-weight:700">'+((h._authorNickname||'匿')[0].toUpperCase())+'</span>'+(h._authorNickname||'匿名用户')+'</span></div>'
+      +'  <div class="hdi-row"><label>科目</label><span>'+h.subject+'</span></div>'
+      +'  <div class="hdi-row"><label>状态</label><span class="hw-status-tag '+sc+'">'+h.status+'</span></div>'
+      +(h.deadline?'<div class="hdi-row"><label>截止日期</label><span>📅 '+h.deadline+'</span></div>':'')
+      +(h.score?'<div class="hdi-row"><label>得分</label><span class="hw-score-inline">🏆 '+h.score+'</span></div>':'')
+      +(h.date?'<div class="hdi-row"><label>发布时间</label><span>'+h.date+'</span></div>':'')
+      +((h._likes&&h._likes.length)?'<div class="hdi-row"><label>获赞</label><span>❤️ '+h._likes.length+' 人喜欢</span></div>':'')
+      +'</div>'
+      +(h.desc?'<div class="hw-detail-desc"><h4>📝 作品描述</h4><p>'+h.desc+'</p></div>':'')
+      +filesSection
+      +'<div class="hw-detail-actions" style="justify-content:center">'
+      +  '<button class="btn btn-outline" id="hwDetailCloseComm">关闭</button>'
+      +'</div>';
+
+    detailOverlay.classList.add('open');
+    detailClose.onclick=function(){detailOverlay.classList.remove('open')};
+    detailOverlay.addEventListener('click',function(e){if(e.target===detailOverlay)detailOverlay.classList.remove('open')});
+
+    // 文件下载绑定
+    detailBody.querySelectorAll('.hdf-download').forEach(function(btn){
+      btn.onclick=function(){
+        var name=btn.dataset.name;var file=null;
+        for(var i=0;i<h.files.length;i++){if(h.files[i].name===name){file=h.files[i];break}}
+        if(file)downloadFile(file);
+      };
+    });
+    detailBody.querySelectorAll('.hdf-clickable,.hdf-thumb').forEach(function(el){
+      el.onclick=function(){
+        var name=el.getAttribute('title')||'';var file=null;
+        for(var i=0;i<h.files.length;i++){if(h.files[i].name===name){file=h.files[i];break}}
+        if(file)previewImage(file);
+      };
+    });
+    var closeBtn=document.getElementById('hwDetailCloseComm');
+    if(closeBtn)closeBtn.onclick=function(){detailOverlay.classList.remove('open')};
+  }
+
   // ===== 作业详情弹窗 =====
   const detailOverlay=document.getElementById('hwDetailOverlay'),
     detailClose=document.getElementById('hwDetailClose'),
@@ -1276,18 +1500,24 @@ var Auth=(function(){
     // 状态样式映射
     var sc=statusClass(h.status);
 
-    // 文件列表 HTML
+    // 文件列表 HTML（支持图片预览）
     var filesSection='';
     if(h.files&&h.files.length){
       var fileItems=h.files.map(function(f){
         var icon=fileIcon(f.name);
         var displayName=f.name;
         if(f.name.length>30){displayName=f.name.slice(0,27)+'...';}
-        return '<div class="hw-detail-file-item">'
+        var isImage = f.type && f.type.startsWith('image/');
+        var previewBtn = isImage
+          ? '<button class="tut-btn hdf-preview" data-name="'+f.name+'" title="预览图片">👁️</button>'
+          : '';
+        return '<div class="hw-detail-file-item '+(isImage?'hdf-img-item':'')+'">'
+          + (isImage ? '<div class="hdf-thumb" style="background-image:url('+f.data+')" data-name="'+f.name+'" title="点击预览"></div>' : '')
           + '<span class="hdf-icon">'+icon+'</span>'
-          + '<span class="hdf-name" title="'+f.name+'">'+displayName+'</span>'
+          + '<span class="hdf-name'+(isImage?' hdf-clickable':'')+'" title="'+f.name+'">'+displayName+'</span>'
           + '<span class="hdf-size">'+formatSize(f.size)+'</span>'
           + '<div class="hdf-actions">'
+          +   previewBtn
           +   '<button class="tut-btn hdf-download" data-name="'+f.name+'" title="下载文件">⬇️</button>'
           + '</div>'
           +'</div>';
@@ -1340,7 +1570,31 @@ var Auth=(function(){
     detailClose.onclick=function(){detailOverlay.classList.remove('open')};
     detailOverlay.addEventListener('click',function(e){if(e.target===detailOverlay)detailOverlay.classList.remove('open')});
 
-    // 文件下载绑定
+    // 文件预览 & 下载绑定
+    detailBody.querySelectorAll('.hdf-preview').forEach(function(btn){
+      btn.onclick=function(){
+        var name=btn.dataset.name;
+        var file=null;
+        for(var i=0;i<h.files.length;i++){if(h.files[i].name===name){file=h.files[i];break;}}
+        if(file)previewImage(file);
+      };
+    });
+    detailBody.querySelectorAll('.hdf-clickable').forEach(function(el){
+      el.onclick=function(){
+        var name=el.getAttribute('title');
+        var file=null;
+        for(var i=0;i<h.files.length;i++){if(h.files[i].name===name){file=h.files[i];break;}}
+        if(file)previewImage(file);
+      };
+    });
+    detailBody.querySelectorAll('.hdf-thumb').forEach(function(thumb){
+      thumb.onclick=function(){
+        var name=thumb.dataset.name;
+        var file=null;
+        for(var i=0;i<h.files.length;i++){if(h.files[i].name===name){file=h.files[i];break;}}
+        if(file)previewImage(file);
+      };
+    });
     detailBody.querySelectorAll('.hdf-download').forEach(function(btn){
       btn.onclick=function(){
         var name=btn.dataset.name;
@@ -1361,7 +1615,7 @@ var Auth=(function(){
     // 删除按钮
     document.getElementById('hwDetailDel').onclick=function(){
       detailOverlay.classList.remove('open');
-      deleteHw(h.id);
+      deleteHw(h.id||'');
     };
   }
 
@@ -1379,10 +1633,27 @@ var Auth=(function(){
       if(saved.length>0){allHw=saved;return}
       allHw=[...DEFAULT_HOMEWORK];return;
     }
-    try{allHw=await api('GET',`/homework?filter=${filter}&search=${encodeURIComponent(search)}`)}
-    catch(err){
-      console.log('作业加载使用演示数据（离线模式）');
-      allHw=[...DEFAULT_HOMEWORK];
+    // 生产模式：严格从后端加载，失败时不 fallback 到本地假数据（避免 id 不匹配导致删除/更新失败）
+    try{
+      allHw=await api('GET',`/homework?filter=${filter}&search=${encodeURIComponent(search)}`);
+    }catch(err){
+      var errMsg=(err.message||'').toLowerCase();
+      console.error('[loadHomework] API 失败:', err.message);
+      // 认证过期 → 清除登录态并提示重新登录
+      if(errMsg.indexOf('401')>=0||errMsg.indexOf('未登录')>=0||errMsg.indexOf('unauthorized')>=0){
+        console.log('[loadHomework] Token 已过期，清除登录态');
+        // 延迟触发，避免在 render 过程中修改状态
+        setTimeout(function(){
+          if(typeof Auth!=='undefined'&&Auth.openAuth){
+            try{Auth.clearSession&&Auth.clearSession();}catch(e){}
+            try{Auth.updateUI&&Auth.updateUI();}catch(e){}
+            Auth.openAuth();
+          }
+        },100);
+        allHw=[];return;
+      }
+      // 其他错误（网络/超时等）：显示空列表而不是假数据
+      allHw=[];
     }
   }
 
@@ -1495,19 +1766,77 @@ var Auth=(function(){
         files:uploadedFiles,
       };
       if(id){
-        await apiOrLocal('PUT',`/homework/${id}`,data,'3dacademy-homework');toast('✅ 作业已更新！');
+        var updated=await apiOrLocal('PUT',`/homework/${id}`,data,'3dacademy-homework');
+        toast('✅ 作业已更新！');
+        // ★ 同步更新内存（兼容后端返回完整对象或仅 message）
+        var existing=allHw.find(function(x){return x.id===id});
+        if(existing){
+          if(updated&&updated.title){Object.assign(existing,updated)}
+          else{Object.assign(existing,data)}
+        }
       }else{
         data.date=new Date().toLocaleDateString('zh-CN');
-        await apiOrLocal('POST','/homework',data,'3dacademy-homework');toast('✅ 作业添加成功！');
+        var created=await apiOrLocal('POST','/homework',data,'3dacademy-homework');
+        toast('✅ 作业添加成功！');
+        // ★ 确保用完整对象写入内存（兼容后端返回完整对象或仅 {id,message}）
+        if(created&&created.title){
+          allHw.push(created);
+        }else if(created&&created.id){
+          data.id=created.id;
+          allHw.push({...data});
+        }else{
+          data.id='hw-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
+          allHw.push({...data});
+        }
       }
-      closeModal();await render();
-    }catch(err){toast('⚠️ '+err.message)}
+      if(DEMO_MODE){LS.set('3dacademy-homework',allHw)}
+      closeModal();await render(true);
+    }catch(err){
+      console.error('作业保存失败:',err);
+      var errMsg=(err.message||'').toLowerCase();
+      if(errMsg.indexOf('401')>=0||errMsg.indexOf('未登录')>=0){
+        toast('⚠️ 登录已过期，请重新登录');Auth.openAuth();
+      }else{toast('⚠️ '+err.message)}
+    }
   };
 
   async function deleteHw(id){
-    if(!confirm('确定要删除这个作业吗？'))return;
-    try{await apiOrLocal('DELETE',`/homework/${id}`,id,'3dacademy-homework');await render();toast('🗑️ 作业已删除')}
-    catch(err){toast('⚠️ '+err.message)}
+    console.log('[deleteHw] 收到的id:', id, '类型:', typeof id);
+    var targetId = null;
+    if(typeof id === 'string' && id) { targetId = id; }
+    else if(id && typeof id === 'object' && id.dataset) {
+      targetId = id.dataset.hwId || id.dataset.id || null;
+    }
+    
+    if(!targetId) { toast('⚠️ 无法删除：缺少作业ID'); return; }
+    if(!confirm('确定要删除这个作业吗？此操作不可恢复。')) return;
+
+    try{
+      try{
+        await apiOrLocal('DELETE',`/homework/${targetId}`,targetId,'3dacademy-homework');
+      }catch(delErr){
+        var msg=(delErr.message||'').toLowerCase();
+        if(msg.indexOf('404')>=0||msg.indexOf('未找到')>=0||msg.indexOf('不存在')>=0||msg.indexOf('not found')>=0){
+          console.log('[deleteHw] 后端无此作业，静默移除:', targetId);
+        }else{
+          throw delErr;
+        }
+      }
+      // ★ 核心：立即从内存数组中移除（不管哪种模式都必须做）
+      var beforeLen=allHw.length;
+      allHw=allHw.filter(function(x){return x.id!==targetId});
+      console.log('[deleteHw] 内存清理: %d → %d (移除id=%s)', beforeLen, allHw.length, targetId);
+      // DEMO_MODE 下同步持久化到 localStorage
+      if(DEMO_MODE){LS.set('3dacademy-homework',allHw)}
+      toast('🗑️ 作业已删除');
+      await render(true); // 跳过重新加载，直接用已清理的内存数组渲染
+    }catch(err){
+      console.error('删除作业失败:',err);
+      var errMsg=(err.message||'').toLowerCase();
+      if(errMsg.indexOf('401')>=0||errMsg.indexOf('未登录')>=0){
+        toast('⚠️ 登录已过期，请重新登录');Auth.openAuth();
+      }else{toast('⚠️ 删除失败:'+err.message)}
+    }
   }
 
   // ===== 提交作业（状态流转）=====
@@ -1529,31 +1858,69 @@ var Auth=(function(){
     if(!confirm(confirmMsg))return;
 
     try{
-      await apiOrLocal('PUT',`/homework/${h.id}`,{...h,status:newStatus},'3dacademy-homework');
-      toast('✅ 作业已'+(newStatus==='已提交'?'提交！':'更新为「'+newStatus+'」'));
-      // 如果详情弹窗开着，刷新它
-      if(detailOverlay.classList.contains('open')){
-        h.status=newStatus;showHwDetail(h);
-      }else{
-        await render();
+      // 先尝试 PUT 更新；如果后端返回 404（作业不存在），自动 POST 创建
+      var putResult=null;
+      try{
+        putResult=await apiOrLocal('PUT',`/homework/${h.id}`,{...h,status:newStatus},'3dacademy-homework');
+      }catch(putErr){
+        // 404 / "未找到" / "不存在" → 说明该作业在后端没有记录（可能是 fallback 的演示数据），自动创建
+        var msg=(putErr.message||'').toLowerCase();
+        if(msg.indexOf('404')>=0||msg.indexOf('未找到')>=0||msg.indexOf('不存在')>=0||msg.indexOf('not found')>=0){
+          console.log('[submitHw] 作业不存在，自动创建:', h.id, '→ POST /homework');
+          var created=await apiOrLocal('POST','/homework',{...h,id:'',status:newStatus},'3dacademy-homework');
+          if(created&&created.id)h.id=created.id; // 更新为后端生成的真实 ID
+          putResult=created;
+        }else{
+          throw putErr; // 其他错误继续抛出
+        }
       }
-    }catch(err){toast('⚠️ '+err.message)}
+      toast('✅ 作业已'+(newStatus==='已提交'?'提交！':'更新为「'+newStatus+'」'));
+      // ★ 同步更新内存数组（兼容完整对象或仅 message）
+      var hwItem=allHw.find(function(x){return x.id===h.id});
+      if(hwItem){
+        if(putResult&&putResult.status){Object.assign(hwItem,putResult)}
+        else{hwItem.status=newStatus}
+      }
+      if(DEMO_MODE){LS.set('3dacademy-homework',allHw)}
+      if(detailOverlay.classList.contains('open')){showHwDetail(h);}
+      else{await render(true)}
+    }catch(err){
+      console.error('[submitHw] 操作失败:',err);
+      var errMsg=(err.message||'').toLowerCase();
+      if(errMsg.indexOf('401')>=0||errMsg.indexOf('未登录')>=0){
+        toast('⚠️ 登录已过期，请重新登录');
+        Auth.openAuth();
+      }else{toast('⚠️ '+err.message)}
+    }
   }
 
   function downloadFile(file){
+    if(!file||!file.name){toast('⚠️ 文件信息不完整');return;}
     var src='';
     if(DEMO_MODE){
-      // 本地模式：使用 base64 data
       src=file.data||'';
+      if(!src){
+        toast('⚠️ 文件「'+file.name+'」不可用（数据缺失）');return;
+      }
     }else{
-      // 生产模式：从 R2 下载
       if(file.key){src=API_BASE+'/api/upload/'+encodeURIComponent(file.key)}
-      else{src=file.data||'';}
+      else if(file.data){src=file.data;}
+      else{toast('⚠️ 文件「'+file.name+'」不可用');return;}
     }
-    if(!src){toast('⚠️ 文件不可用');return;}
-    var a=document.createElement('a');
-    a.href=src;a.download=file.name;
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    try{
+      var a=document.createElement('a');
+      a.href=src;
+      a.download=file.name;
+      a.style.display='none';
+      document.body.appendChild(a);
+      a.click();
+      // 延迟移除以确保下载触发
+      setTimeout(function(){document.body.removeChild(a);},200);
+    }catch(err){
+      console.error('下载文件失败:',err);
+      // 降级：尝试新窗口打开
+      try{window.open(src,'_blank')}catch(e){toast('⚠️ 下载失败，请重试')}
+    }
   }
   function previewImage(file){
     var src='';
@@ -1563,10 +1930,22 @@ var Auth=(function(){
       if(file.key){src=API_BASE+'/api/upload/'+encodeURIComponent(file.key)}
       else{src=file.data||'';}
     }
-    if(!src||(!file.type&&!file.type.startsWith('image/')&&!src.startsWith('data:'))){downloadFile(file);return;}
+    // 判断是否为图片：有 data: 开头的 src，或 type 是 image/*
+    var isImg = false;
+    if(src){
+      if(src.startsWith('data:image/') || (file.type && file.type.startsWith('image/'))){
+        isImg = true;
+      }
+    }
+    // 非图片或无数据则降级为下载
+    if(!isImg || !src){ downloadFile(file); return; }
+
     var ov=document.createElement('div');ov.className='img-preview-overlay';
-    var img=document.createElement('img');img.src=src;
-    ov.appendChild(img);document.body.appendChild(ov);ov.onclick=function(){ov.remove()};
+    ov.innerHTML='<div class="img-preview-box"><img src="'+src+'" alt="'+(file.name||'预览')+'"/><div class="img-preview-name">'+file.name+'</div><button class="btn btn-primary img-preview-dl">⬇️ 下载</button></div>';
+    document.body.appendChild(ov);
+    ov.onclick=function(e){if(e.target===ov)ov.remove()};
+    var dlBtn=ov.querySelector('.img-preview-dl');
+    if(dlBtn)dlBtn.onclick=function(e){e.stopPropagation();ov.remove();downloadFile(file)};
   }
 
   function updateStats(){
@@ -1575,7 +1954,7 @@ var Auth=(function(){
     hwTotal.textContent=total;hwDone.textContent=done;hwTodo.textContent=total-done;
   }
 
-  async function render(){
+  async function render(skipReload){
     grid.innerHTML='';
     if(!Auth.isLoggedIn()){
       em.style.display='none';
@@ -1584,7 +1963,8 @@ var Auth=(function(){
       grid.appendChild(guard);const gb=guard.querySelector('#guardLoginHw');if(gb)gb.onclick=()=>Auth.openAuth();
       updateStats();return;
     }
-    await loadHomework();
+    // skipReload=true 时跳过重新加载（用于删除/本地更新后直接用内存数据渲染）
+    if(!skipReload){await loadHomework()}
     if(allHw.length===0){
       em.style.display='none';
       const empty=document.createElement('div');empty.className='empty-state';
@@ -1595,6 +1975,9 @@ var Auth=(function(){
     allHw.forEach(h=>{
       const d=document.createElement('div');d.className='hw-card';
       d.dataset.status=h.status;
+      // 安全：确保每个作业有 ID
+      if(!h.id){h.id='hw-'+Date.now()+'-'+Math.random().toString(36).slice(2,6)}
+      d.dataset.hwId=h.id;
       var filesHtml = '';
       if (h.files && h.files.length) {
         var fileChips = h.files.map(function(f, i) {
@@ -1647,7 +2030,7 @@ var Auth=(function(){
         +   '</div>'
         + '</div>';
       d.querySelector('[data-action="edit"]').onclick=function(){openModal(h)};
-      d.querySelector('[data-action="del"]').onclick=function(){deleteHw(h.id)};
+      d.querySelector('[data-action="del"]').onclick=function(){deleteHw(h.id||d.dataset.hwId)};
       var viewBtn=d.querySelector('[data-action="view"]');
       if(viewBtn)viewBtn.onclick=function(){showHwDetail(h)};
       var submitBtn=d.querySelector('[data-action="submit"]');
@@ -1678,5 +2061,361 @@ var Auth=(function(){
   btn.onclick=()=>scrollTo({top:0,behavior:'smooth'});
 }();
 
+// ===== 素材存储管理 =====
+!function(){
+  const grid=document.getElementById('assetsGrid'),
+    si=document.getElementById('assetSearch'),
+    fbs=document.querySelectorAll('#assetFilterBtns .filter-btn'),
+    em=document.getElementById('assetEmptyMsg'),
+    overlay=document.getElementById('assetModalOverlay'),
+    form=document.getElementById('assetForm'),
+    addBtn=document.getElementById('addAssetBtn'),
+    closeBtn=document.getElementById('assetModalClose'),
+    cancelBtn=document.getElementById('assetModalCancel'),
+    modalTitle=document.getElementById('assetModalTitle'),
+    editIdEl=document.getElementById('assetEditId'),
+    fName=document.getElementById('assetName'),
+    fCategory=document.getElementById('assetCategory'),
+    fTags=document.getElementById('assetTags'),
+    fDesc=document.getElementById('assetDesc'),
+    fFileInput=document.getElementById('assetFileInput'),
+    fFileArea=document.getElementById('assetFileArea'),
+    fFileList=document.getElementById('assetFileList'),
+    totalEl=document.getElementById('assetTotal'),
+    sizeEl=document.getElementById('assetSize'),
+    typesEl=document.getElementById('assetTypes');
+
+  // 详情弹窗
+  const detailOverlay=document.getElementById('assetDetailOverlay'),
+    detailClose=document.getElementById('assetDetailClose'),
+    detailTitle=document.getElementById('assetDetailTitle'),
+    detailBody=document.getElementById('assetDetailBody');
+
+  let filter='all',search='',pendingFile=null,allAssets=[];
+
+  // 工具函数
+  function formatSize(b){
+    if(!b||b===0)return'0 B';
+    if(b<1024)return b+'B';
+    if(b<1048576)return(b/1024).toFixed(1)+'KB';
+    if(b<1073741824)return(b/1048576).toFixed(1)+'MB';
+    return(b/1073741824).toFixed(2)+'GB';
+  }
+  function fileIcon(name){
+    const ext=name.split('.').pop().toLowerCase();
+    const map={fbx:'🧊',obj:'🧊',ma:'🎬',mb:'🎬',glb:'🧊',gltf:'🧊',abc:'🧊',png:'🖼️',jpg:'🖼️',jpeg:'🖼️',gif:'🖼️',bmp:'🖼️',tif:'🖼️',tiff:'🖼️',psd:'🎨',mp4:'🎬',mov:'🎬',py:'🐍',mel:'⚡',zip:'📦',rar:'📦','7z':'📦',pdf:'📕'};
+    return map[ext]||'📎';
+  }
+  function extToCategory(ext){
+    const e=ext.toLowerCase();
+    if(['fbx','obj','ma','mb','glb','gltf','abc','usda','usdz','stp','step'].indexOf(e)>=0)return'模型';
+    if(['png','jpg','jpeg','tif','tiff','bmp','psd','exr','hdr'].indexOf(e)>=0)return'贴图';
+    if(['mp4','mov','avi'].indexOf(e)>=0)return'其他';
+    if(['py','mel'].indexOf(e)>=0)return'脚本';
+    return'其他';
+  }
+
+  function readFileAsBase64(file){
+    return new Promise(function(resolve,reject){
+      // 素材文件限制10MB
+      if(file.size>10*1024*1024){reject('文件大小超过10MB限制');return}
+      var reader=new FileReader();
+      reader.onload=function(){resolve({name:file.name,size:file.size,type:file.type,data:reader.result})};
+      reader.onerror=function(){reject('文件读取失败')};
+      reader.readAsDataURL(file);
+    });
+  }
+  function renderPendingFile(){
+    fFileList.innerHTML='';
+    if(pendingFile){
+      var chip=document.createElement('div');chip.className='file-chip asset-file-chip';
+      chip.innerHTML='<span class="file-icon">'+fileIcon(pendingFile.name)+'</span>'
+        +'<span class="file-name" title="'+pendingFile.name+'">'+pendingFile.name+'</span>'
+        +'<span class="file-size">'+formatSize(pendingFile.size)+'</span>'
+        +'<span class="file-remove" id="assetRemoveFile">✕</span>';
+      fFileList.appendChild(chip);
+      document.getElementById('assetRemoveFile').onclick=function(){pendingFile=null;renderPendingFile()};
+    }
+  }
+
+  // 加载素材数据
+  async function loadAssets(){
+    if(DEMO_MODE){
+      var saved=LS.get('3dacademy-assets');
+      if(saved.length>0){allAssets=saved;return;}
+      allAssets=[];
+    }else{
+      try{allAssets=await api('GET','/assets?filter='+filter+'&search='+encodeURIComponent(search))}
+      catch(err){console.log('素材加载使用本地模式');allAssets=LS.get('3dacademy-assets')||[]}
+    }
+  }
+
+  // 打开/关闭上传弹窗
+  function openModal(editItem){
+    form.reset();editIdEl.value='';pendingFile=null;renderPendingFile();
+    if(editItem){
+      modalTitle.textContent='编辑素材信息';
+      editIdEl.value=editItem.id;
+      fName.value=editItem.name;
+      fCategory.value=editItem.category;
+      fTags.value=editItem.tags||'';
+      fDesc.value=editItem.desc||'';
+      if(editItem.file){
+        pendingFile={name:editItem.file.name,size:editItem.file.size,type:editItem.file.type,data:editItem.file.data};
+        renderPendingFile();
+      }
+    }else{
+      modalTitle.textContent='上传新素材';
+    }
+    overlay.classList.add('open');
+  }
+  function closeModal(){overlay.classList.remove('open')}
+  addBtn.onclick=function(){if(!Auth.isLoggedIn()){Auth.openAuth();return}openModal()};
+  closeBtn.onclick=closeModal;cancelBtn.onclick=closeModal;
+  overlay.addEventListener('click',function(e){if(e.target===overlay)closeModal()});
+
+  // 文件选择事件
+  fFileInput.addEventListener('change',async function(e){
+    if(e.target.files.length>0){
+      try{
+        pendingFile=await readFileAsBase64(e.target.files[0]);
+        renderPendingFile();
+        // 如果名称为空，自动填入文件名
+        if(!fName.value.trim())fName.value=pendingFile.name.replace(/\.[^/.]+$/,'');
+        // 自动识别分类
+        var ext=pendingFile.name.split('.').pop().toLowerCase();
+        autoCat=extToCategory(ext);
+        if(autoCat&&!fCategory.value)fCategory.value=autoCat;
+      }catch(err){toast('⚠️ '+err)}
+    }
+  });
+  fFileArea.addEventListener('dragover',function(e){e.preventDefault();fFileArea.classList.add('dragover')});
+  fFileArea.addEventListener('dragleave',function(){fFileArea.classList.remove('dragover')});
+  fFileArea.addEventListener('drop',async function(e){
+    e.preventDefault();fFileArea.classList.remove('dragover');
+    if(e.dataTransfer.files.length>0){
+      try{pendingFile=await readFileAsBase64(e.dataTransfer.files[0]);renderPendingFile()}
+      catch(err){toast('⚠️ '+err)}
+    }
+  });
+
+  // 提交表单
+  form.onsubmit=async function(e){
+    e.preventDefault();
+    if(!Auth.isLoggedIn()){Auth.openAuth();return}
+    if(!pendingFile&&!editIdEl.value){toast('⚠️ 请选择要上传的文件');return;}
+
+    try{
+      var id=editIdEl.value;
+      var data={
+        name:fName.value.trim(),
+        category:fCategory.value,
+        tags:fTags.value.trim(),
+        desc:fDesc.value.trim(),
+        date:new Date().toLocaleDateString('zh-CN'),
+      };
+
+      if(id){
+        // 编辑模式：更新信息，保留原文件或替换
+        var existingAsset=allAssets.find(function(a){return a.id===id});
+        data.file=pendingFile||(existingAsset?existingAsset.file:null);
+        data.id=id;
+        await apiOrLocal('PUT',`/assets/${id}`,data,'3dacademy-assets');
+        toast('✅ 素材已更新！');
+      }else{
+        if(!pendingFile){toast('⚠️ 请选择文件');return;}
+        data.id='asset-'+Date.now()+'-'+Math.random().toString(36).substr(2,5);
+        data.file={name:pendingFile.name,size:pendingFile.size,type:pendingFile.type,data:pendingFile.data};
+        data.downloads=0;
+        await apiOrLocal('POST','/assets',data,'3dacademy-assets');
+        toast('✅ 素材上传成功！');
+      }
+      closeModal();await render();
+    }catch(err){toast('⚠️ '+err.message)}
+  };
+
+  // 删除素材
+  async function deleteAsset(id){
+    if(!confirm('确定要删除这个素材吗？文件将无法恢复。'))return;
+    try{
+      await apiOrLocal('DELETE',`/assets/${id}`,id,'3dacademy-assets');
+      // 双重保障：强制从localStorage移除
+      if(DEMO_MODE){
+        var list=LS.get('3dacademy-assets');
+        LS.set('3dacademy-assets',list.filter(function(x){return x.id!==id}));
+      }
+      toast('🗑️ 素材已删除');
+      await render();
+    }catch(err){toast('⚠️ 删除失败:'+err.message)}
+  }
+
+  // 下载素材
+  function downloadAsset(file){
+    downloadFile(file);
+    // 增加下载计数（异步，不等待）
+    // 这里简化处理，不单独做API调用
+  }
+
+  // 显示素材详情
+  function showAssetDetail(asset){
+    detailTitle.textContent='📦 '+(asset.name||'素材详情');
+    var isImage=asset.file&&asset.file.type&&asset.file.type.startsWith('image/');
+    var previewHtml='';
+    if(isImage&&asset.file){
+      previewHtml='<div class="asset-detail-preview">'
+        +'<img src="'+asset.file.data+'" alt="'+asset.file.name+'" style="max-width:100%;max-height:300px;border-radius:8px;">'
+        +'</div>';
+    }
+
+    var tagHtml='';
+    if(asset.tags){
+      var tags=asset.tags.split(',').map(function(t){return t.trim()}).filter(Boolean);
+      if(tags.length)tagHtml='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">'
+        +tags.map(function(t){return'<span class="tut-cat" style="font-size:11px">'+t+'</span>'}).join('')
+        +'</div>';
+    }
+
+    detailBody.innerHTML=''
+      +previewHtml
+      +'<div class="hw-detail-info">'
+      +'  <div class="hdi-row"><label>名称</label><span>'+(asset.name||'-')+'</span></div>'
+      +'  <div class="hdi-row"><label>分类</label><span>'+asset.category+'</span></div>'
+      +'  <div class="hdi-row"><label>文件名</label><span style="color:var(--primary)">'+(asset.file?asset.file.name:'-')+'</span></div>'
+      +'  <div class="hdi-row"><label>大小</label><span>'+(asset.file?formatSize(asset.file.size):'-')+'</span></div>'
+      +'  <div class="hdi-row"><label>上传日期</label><span>'+(asset.date||'-')+'</span></div>'
+      +'</div>'
+      +(asset.desc?'<div class="hw-detail-desc"><h4>📝 描述</h4><p>'+asset.desc+'</p></div>':'')
+      +tagHtml
+      +'<div class="hw-detail-actions">'
+      +'  <button class="btn btn-primary" id="assetDetailDownload">⬇️ 下载文件</button>'
+      +'  <button class="btn btn-outline asset-edit-btn" id="assetDetailEdit">✏️ 编辑</button>'
+      +'  <button class="btn btn-outline hw-del-btn" id="assetDetailDel">🗑️ 删除</button>'
+      +'</div>';
+
+    detailOverlay.classList.add('open');
+    detailClose.onclick=function(){detailOverlay.classList.remove('open')};
+    detailOverlay.addEventListener('click',function(e){if(e.target===detailOverlay)detailOverlay.classList.remove('open')});
+
+    document.getElementById('assetDetailDownload').onclick=function(){detailOverlay.classList.remove('open');downloadAsset(asset.file)};
+    document.getElementById('assetDetailEdit').onclick=function(){detailOverlay.classList.remove('open');openModal(asset)};
+    document.getElementById('assetDetailDel').onclick=function(){detailOverlay.classList.remove('open');deleteAsset(asset.id)};
+  }
+
+  // 更新统计
+  function updateStats(){
+    totalEl.textContent=allAssets.length;
+    var totalSize=0;
+    var typeSet={};
+    allAssets.forEach(function(a){
+      if(a.file)totalSize+=a.file.size||0;
+      typeSet[a.category]=true;
+    });
+    sizeEl.textContent=formatSize(totalSize);
+    typesEl.textContent=Object.keys(typeSet).length;
+  }
+
+  // 渲染素材网格
+  async function render(){
+    grid.innerHTML='';
+    if(!Auth.isLoggedIn()){
+      em.style.display='none';
+      var guard=document.createElement('div');guard.className='empty-state';
+      guard.innerHTML='<div class="empty-state-icon">🔐</div><h3>登录后使用素材库</h3><p>上传和管理你的3D模型、贴图、脚本等学习素材。</p><button class="btn btn-primary" id="guardLoginAsset">立即登录</button>';
+      grid.appendChild(guard);
+      var gb=guard.querySelector('#guardLoginAsset');
+      if(gb)gb.onclick=function(){Auth.openAuth()};
+      updateStats();return;
+    }
+
+    await loadAssets();
+
+    if(allAssets.length===0){
+      em.style.display='none';
+      var empty=document.createElement('div');empty.className='empty-state';
+      empty.innerHTML='<div class="empty-state-icon">📦</div><h3>还没有素材</h3><p>上传你的3D模型、贴图、参考图等素材，方便随时取用。</p><button class="btn btn-primary" id="emptyAddAsset">📤 上传第一个素材</button>';
+      grid.appendChild(empty);
+      var emptyBtn=empty.querySelector('#emptyAddAsset');
+      if(emptyBtn)emptyBtn.onclick=function(){openModal()};
+      updateStats();return;
+    }else{em.style.display='none';}
+
+    // 过滤
+    var filtered=allAssets;
+    if(search){
+      var kw=search.toLowerCase();
+      filtered=filtered.filter(function(a){return(a.name+a.desc+a.tags).toLowerCase().includes(kw)});
+    }
+    if(filter!=='all'){
+      filtered=filtered.filter(function(a){return a.category===filter});
+    }
+
+    filtered.forEach(function(asset,idx){
+      var d=document.createElement('div');
+      d.className='asset-card';
+      var isImage=asset.file&&asset.file.type&&asset.file.type.startsWith('image/');
+      var icon=fileIcon(asset.file?asset.file.name:'');
+      var thumbHtml='';
+      if(isImage&&asset.file){
+        thumbHtml='<div class="asset-thumb" style="background-image:url('+asset.file.data+')"></div>';
+      }else{
+        thumbHtml='<div class="asset-thumb asset-thumb-icon">'+icon+'</div>';
+      }
+
+      var tagHtml='';
+      if(asset.tags){
+        var tags=asset.tags.split(',').map(function(t){return t.trim()}).filter(Boolean).slice(0,3);
+        if(tags.length)tagHtml='<div class="asset-tags">'+tags.map(function(t){return'<span class="asset-tag">'+t+'</span>'}).join('')+'</div>';
+      }
+
+      d.innerHTML=''
+        +thumbHtml
+        +'<div class="asset-info">'
+        +'<h4 class="asset-name" title="'+asset.name+'">'+(asset.name.length>20?asset.name.slice(0,17)+'...':asset.name)+'</h4>'
+        +'<div class="asset-meta">'
+        +'  <span class="asset-cat-tag">'+asset.category+'</span>'
+        +'  <span class="asset-fsize">'+formatSize(asset.file?asset.file.size:0)+'</span>'
+        +'</div>'
+        +(asset.desc?'<p class="asset-desc-text">'+(asset.desc.length>40?asset.desc.slice(0,37)+'...':asset.desc)+'</p>':'')
+        +tagHtml
+        +'</div>'
+        +'<div class="asset-actions">'
+        +'  <button class="tut-btn" title="查看详情" data-action="view">👁️</button>'
+        +'  <button class="tut-btn" title="下载" data-action="dl">⬇️</button>'
+        +'  <button class="tut-btn del" title="删除" data-action="del">🗑️</button>'
+        +'</div>';
+
+      d.querySelector('[data-action="view"]').onclick=function(){showAssetDetail(asset)};
+      d.querySelector('[data-action="dl"]').onclick=function(){downloadAsset(asset.file)};
+      d.querySelector('[data-action="del"]').onclick=function(){deleteAsset(asset.id)};
+      d.style.animationDelay=(idx*0.06)+'s';
+      grid.appendChild(d);
+    });
+
+    updateStats();
+  }
+
+  si.addEventListener('input',function(e){search=e.target.value;render()});
+  fbs.forEach(function(b){
+    b.addEventListener('click',function(){
+      fbs.forEach(function(x){x.classList.remove('active')});
+      b.classList.add('active');
+      filter=b.dataset.filter;render();
+    });
+  });
+  render();
+  document.addEventListener('auth-change',render);
+}();
+
 // ===== 页脚年份 =====
 document.getElementById('footerYear').textContent=new Date().getFullYear();
+
+// ===== 地蛋设计防伪码 =====
+!function(){
+  var el=document.getElementById('antiFakeCode');
+  if(!el)return;
+  // 基于时间戳+固定盐值生成唯一防伪码
+  var seed='DiDan-3DAcademy-2026';
+  var hash=crypto.createHash?crypto.createHash('md5').update(seed).digest('hex').slice(0,8).toUpperCase():
+    Math.random().toString(36).slice(2,10).toUpperCase();
+  el.textContent=hash;
+}();

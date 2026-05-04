@@ -71,7 +71,13 @@ module.exports = async function handler(req) {
       difficulty: body.difficulty || 50, color: body.color || '#6ea8fe',
       builtin: 0, created_at: new Date().toISOString()
     }]);
-    return json({ id: newId, message: '模块添加成功' }, 201);
+    return json({
+      id: newId, user_id: userId, title: body.title,
+      icon: body.icon || '📚', category: body.category,
+      desc: body.desc || '', tags: body.tags || '',
+      difficulty: body.difficulty || 50, color: body.color || '#6ea8fe',
+      builtin: 0, created_at: new Date().toISOString()
+    }, 201);
   }
 
   if (req.method === 'PUT' && id) {
