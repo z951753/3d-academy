@@ -158,22 +158,71 @@ function toast(msg){
   setTimeout(()=>t.classList.remove('show'),2500);
 }
 
-// 文件上传工具
+// 文件上传工具（Base64 + 数据库存储方案）
 async function uploadFileToR2(file, category, relatedId) {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('category', category || '');
-  formData.append('relatedId', relatedId || '');
+  // 如果传入的已经是 base64 对象（有 data 字段），直接发送到后端
+  if (file.data) {
+    const token = localStorage.getItem('3dacademy-token-v1') || '';
+    const url = API_BASE + '/api/upload';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + token,
+      },
+      body: JSON.stringify({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        data: file.data,
+        category: category || '',
+        relatedId: relatedId || '',
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => {})).error || '上传失败');
+    return await res.json();
+  }
 
-  const token = localStorage.getItem('3dacademy-token-v1') || '';
-  const url = API_BASE + '/api/upload';
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + token },
-    body: formData,
-  });
-  if (!res.ok) throw new Error((await res.json().catch(() => {})).error || '上传失败');
-  return await res.json();
+  // 如果是 File 对象，先转为 base64 再上传
+  if (file instanceof File) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async function() {
+        try {
+          const base64Data = reader.result; // data:mime;base64,...
+          const token = localStorage.getItem('3dacademy-token-v1') || '';
+          const url = API_BASE + '/api/upload';
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: 'Bearer ' + token,
+            },
+            body: JSON.stringify({
+              name: file.name,
+              size: file.size,
+              type: file.type,
+              data: base64Data,
+              category: category || '',
+              relatedId: relatedId || '',
+            }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            reject(new Error(err.error || '上传失败'));
+            return;
+          }
+          resolve(await res.json());
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error('文件读取失败'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  throw new Error('不支持的文件格式');
 }
 
 
@@ -1106,16 +1155,22 @@ var Auth=(function(){
           uploadedFiles.push({name:pf.name,size:pf.size,type:pf.type,data:pf.data});
         }
       }else{
+        // 生产模式：上传到服务器（Base64 + 数据库存储）
         for(const pf of pendingFiles){
           try{
             const uploaded=await uploadFileToR2(
-              {name:pf.name,size:pf.size,type:pf.type},
+              {name:pf.name,size:pf.size,type:pf.type,data:pf.data},
               'mistake',id||''
             );
+            // 返回的文件对象包含完整的 base64 数据，直接保存
             uploadedFiles.push({
-              name:uploaded.name,size:uploaded.size,type:uploaded.type,key:uploaded.key
+              name:uploaded.name,
+              size:uploaded.size,
+              type:uploaded.type,
+              key:uploaded.key,
+              data:uploaded.data // ★ 保留 base64 数据用于显示
             });
-          }catch(err){console.error('上传文件失败:',err)}
+          }catch(err){console.error('上传文件失败:',err);toast('⚠️ 文件 '+pf.name+' 上传失败')}
         }
       }
 
@@ -1749,14 +1804,21 @@ var Auth=(function(){
           uploadedFiles.push({name:pf.name,size:pf.size,type:pf.type,data:pf.data});
         }
       }else{
-        // 生产模式：上传到 R2 存储
+        // 生产模式：上传到服务器（Base64 + 数据库存储）
         for(const pf of pendingFiles){
           try{
             const uploaded=await uploadFileToR2(
-              {name:pf.name,size:pf.size,type:pf.type},'homework',id||''
+              {name:pf.name,size:pf.size,type:pf.type,data:pf.data},'homework',id||''
             );
-            uploadedFiles.push({name:uploaded.name,size:uploaded.size,type:uploaded.type,key:uploaded.key});
-          }catch(err){console.error('上传文件失败:',err)}
+            // 返回的文件对象包含完整的 base64 数据，直接保存
+            uploadedFiles.push({
+              name:uploaded.name,
+              size:uploaded.size,
+              type:uploaded.type,
+              key:uploaded.key,
+              data:uploaded.data // ★ 保留 base64 数据用于显示
+            });
+          }catch(err){console.error('上传文件失败:',err);toast('⚠️ 文件 '+pf.name+' 上传失败')}
         }
       }
 

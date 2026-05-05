@@ -1,0 +1,5 @@
+#!/bin/bash
+export SUPABASE_URL="https://laqpzypayugfuvdhhauc.supabase.co"
+export SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhcXB6eXBheXVnZnV2ZGhoYXVjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Nzg4MDI2MywiZXhwIjoyMDkzNDU2MjYzfQ.DaxV5FUEtxUOBxkB4jEyROw67IOZfTUtAfJ-pN12TfI"
+echo "Starting server with Supabase..."
+node server.js

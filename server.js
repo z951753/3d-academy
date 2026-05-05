@@ -308,11 +308,68 @@ async function handleAPI(req, url) {
     }
   }
 
-  // 以下所有路由需要认证
-  const userId = getAuthUser(req);
-  if (!userId) return jsonRes({ error: '未登录' }, 401);
+// ========== 作业 CRUD ==========
+// 社区广场：公开查看所有用户的作业（无需认证，必须放在认证检查前面）
+if (pathname === '/api/homework/public' && req.method === 'GET') {
+  // 辅助函数：解析作业的 files 字段
+  function parseHwFiles(hw) {
+    if (!hw) return hw;
+    if (Array.isArray(hw.files)) return hw;
+    if (typeof hw.files === 'string' && hw.files.trim()) {
+      try { hw.files = JSON.parse(hw.files); } catch(e) { hw.files = []; }
+    } else { hw.files = []; }
+    return hw;
+  }
 
-  const db = loadDB();
+  if (USE_SUPABASE) {
+    const { data: allHw } = await supabase.from('homework').select('*').order('created_at', { ascending: false });
+    let result = (allHw || []).map(parseHwFiles);
+    const authorIds = [...new Set(result.map(h => h.user_id))];
+    if (authorIds.length > 0) {
+      const { data: authors } = await supabase.from('users').select('id,nickname,email,avatar_color').in('id', authorIds);
+      const authorMap = {};
+      (authors||[]).forEach(a => { authorMap[a.id] = a; });
+      result = result.map(h => ({
+        ...h,
+        _authorId: h.user_id,
+        _authorNickname: authorMap[h.user_id] ? (authorMap[h.user_id].nickname || authorMap[h.user_id].email.split('@')[0]) : '匿名',
+        _authorAvatarColor: authorMap[h.user_id]?.avatar_color || '#6ea8fe'
+      }));
+    }
+    let filter = url.searchParams.get('filter') || 'all';
+    let search = url.searchParams.get('search') || '';
+    if (filter !== 'all') result = result.filter(h => h.status === filter);
+    if (search) { const kw = search.toLowerCase(); result = result.filter(h => (h.title+h.subject+(h.desc||'')).toLowerCase().includes(kw)); }
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const pageSize = parseInt(url.searchParams.get('pageSize') || '20');
+    return jsonRes({ list: result.slice((page-1)*pageSize, page*pageSize), total: result.length, page, totalPages: Math.ceil(result.length/pageSize) });
+  }
+
+  // 本地模式
+  const pubDb = loadDB();
+  const allHomework = [];
+  for (const [uid, hwList] of Object.entries(pubDb.homework || {})) {
+    const user = pubDb.users[uid];
+    const nickname = user ? (user.nickname || user.email.split('@')[0]) : '匿名用户';
+    const avatarColor = user ? (user.avatar_color || '#6ea8fe') : '#6ea8fe';
+    for (const hw of (hwList || [])) { allHomework.push({ ...hw, _authorId: uid, _authorNickname: nickname, _authorAvatarColor: avatarColor }); }
+  }
+  allHomework.sort((a, b) => new Date(b.created_at || b.date || 0) - new Date(a.created_at || a.date || 0));
+  let filter = url.searchParams.get('filter') || 'all';
+  let search = url.searchParams.get('search') || '';
+  let result = allHomework;
+  if (filter !== 'all') result = result.filter(h => h.status === filter);
+  if (search) { const kw = search.toLowerCase(); result = result.filter(h => (h.title+h.subject+(h.desc||'')).toLowerCase().includes(kw)); }
+  const page = parseInt(url.searchParams.get('page') || '1');
+  const pageSize = parseInt(url.searchParams.get('pageSize') || '20');
+  return jsonRes({ list: result.slice((page-1)*pageSize, page*pageSize), total: result.length, page, totalPages: Math.ceil(result.length/pageSize) });
+}
+
+// 以下所有路由需要认证
+const userId = getAuthUser(req);
+if (!userId) return jsonRes({ error: '未登录' }, 401);
+
+const db = loadDB();
 
   // 确保 defaults 初始化
   initDefaults(db, userId);
@@ -523,61 +580,27 @@ async function handleAPI(req, url) {
   }
 
   // ========== 作业 CRUD ==========
-  // 社区广场：公开查看所有用户的作业（无需认证）
-  if (pathname === '/api/homework/public' && req.method === 'GET') {
-    if (USE_SUPABASE) {
-      // Supabase 模式：查询所有作业 + 关联用户信息
-      const { data: allHw } = await supabase.from('homework').select('*').order('created_at', { ascending: false });
-      let result = allHw || [];
-      // 获取所有作者信息
-      const authorIds = [...new Set(result.map(h => h.user_id))];
-      if (authorIds.length > 0) {
-        const { data: authors } = await supabase.from('users').select('id,nickname,email,avatar_color').in('id', authorIds);
-        const authorMap = {};
-        (authors||[]).forEach(a => { authorMap[a.id] = a; });
-        result = result.map(h => ({
-          ...h,
-          _authorId: h.user_id,
-          _authorNickname: authorMap[h.user_id] ? (authorMap[h.user_id].nickname || authorMap[h.user_id].email.split('@')[0]) : '匿名',
-          _authorAvatarColor: authorMap[h.user_id]?.avatar_color || '#6ea8fe'
-        }));
-      }
-      let filter = url.searchParams.get('filter') || 'all';
-      let search = url.searchParams.get('search') || '';
-      if (filter !== 'all') result = result.filter(h => h.status === filter);
-      if (search) { const kw = search.toLowerCase(); result = result.filter(h => (h.title+h.subject+(h.desc||'')).toLowerCase().includes(kw)); }
-      const page = parseInt(url.searchParams.get('page') || '1');
-      const pageSize = parseInt(url.searchParams.get('pageSize') || '20');
-      return jsonRes({ list: result.slice((page-1)*pageSize, page*pageSize), total: result.length, page, totalPages: Math.ceil(result.length/pageSize) });
-    }
-
-    // 本地模式
-    const db = loadDB();
-    const allHomework = [];
-    for (const [uid, hwList] of Object.entries(db.homework || {})) {
-      const user = db.users[uid];
-      const nickname = user ? (user.nickname || user.email.split('@')[0]) : '匿名用户';
-      const avatarColor = user ? (user.avatar_color || '#6ea8fe') : '#6ea8fe';
-      for (const hw of (hwList || [])) { allHomework.push({ ...hw, _authorId: uid, _authorNickname: nickname, _authorAvatarColor: avatarColor }); }
-    }
-    allHomework.sort((a, b) => new Date(b.created_at || b.date || 0) - new Date(a.created_at || a.date || 0));
-    let filter = url.searchParams.get('filter') || 'all';
-    let search = url.searchParams.get('search') || '';
-    let result = allHomework;
-    if (filter !== 'all') result = result.filter(h => h.status === filter);
-    if (search) { const kw = search.toLowerCase(); result = result.filter(h => (h.title+h.subject+(h.desc||'')).toLowerCase().includes(kw)); }
-    const page = parseInt(url.searchParams.get('page') || '1');
-    const pageSize = parseInt(url.searchParams.get('pageSize') || '20');
-    return jsonRes({ list: result.slice((page-1)*pageSize, page*pageSize), total: result.length, page, totalPages: Math.ceil(result.length/pageSize) });
-  }
-
   // 点赞/取消点赞作业
   if (pathname.match(/^\/api\/homework\/([^/]+)\/like$/) && req.method === 'POST') {
     const hwMatch = pathname.match(/^\/api\/homework\/([^/]+)\/like$/);
     const hwId = decodeURIComponent(hwMatch[1]);
     const userIdLike = getAuthUser(req);
     if (!userIdLike) return jsonRes({ error: '未登录' }, 401);
-    
+
+    if (USE_SUPABASE) {
+      // Supabase 模式
+      const { data: targetHw } = await supabase.from('homework').select('*').eq('id', hwId).maybeSingle();
+      if (!targetHw) return jsonRes({ error: '作业不存在' }, 404);
+      const likes = parseJsonSafe(targetHw._likes || '[]');
+      const idx = likes.indexOf(userIdLike);
+      let liked;
+      if (idx >= 0) { likes.splice(idx, 1); liked = false; }
+      else { likes.push(userIdLike); liked = true; }
+      await supabase.from('homework').update({ _likes: JSON.stringify(likes) }).eq('id', hwId);
+      return jsonRes({ liked, count: likes.length });
+    }
+
+    // 本地模式
     const db = loadDB();
     // 查找该作业属于哪个用户
     let targetHw = null, targetUid = null;
@@ -586,7 +609,7 @@ async function handleAPI(req, url) {
       if(found){ targetHw=found; targetUid=uid; break; }
     }
     if (!targetHw) return jsonRes({ error: '作业不存在' }, 404);
-    
+
     if (!targetHw._likes) targetHw._likes = [];
     const idx = targetHw._likes.indexOf(userIdLike);
     if (idx >= 0) { targetHw._likes.splice(idx, 1); } 
@@ -599,6 +622,58 @@ async function handleAPI(req, url) {
   if (pathname.match(/^\/api\/homework(?:\/.*)?$/)) {
     const hwMatch = pathname.match(/^\/api\/homework\/([^/?]+)/);
     const id = hwMatch ? decodeURIComponent(hwMatch[1]) : null;
+
+    // ===== Supabase 模式 =====
+    if (USE_SUPABASE) {
+      // GET 个人作业列表
+      if (req.method === 'GET' && !id) {
+        let q = supabase.from('homework').select('*').eq('user_id', userId);
+        const { data: list } = await q;
+        let result = (list || []).map(parseHwFiles);
+        let filter = url.searchParams.get('filter') || 'all';
+        let search = url.searchParams.get('search') || '';
+        if (filter !== 'all') result = result.filter(h => h.status === filter);
+        if (search) { const kw = search.toLowerCase(); result = result.filter(h => (h.title+h.subject+(h.desc||'')).toLowerCase().includes(kw)); }
+        return jsonRes(result);
+      }
+      // POST 创建作业
+      if (req.method === 'POST' && !id) {
+        const body = await parseBody(req);
+        if (!body.title || !body.subject) return jsonRes({ error: '作业名称和科目为必填项' }, 400);
+        const newId = makeId('hw');
+        const filesJson = JSON.stringify(body.files || []);
+        await supabase.from('homework').insert([{ id: newId, user_id: userId, title: body.title, subject: body.subject, status: body.status||'未开始', deadline: body.deadline||'', score: body.score||'', desc: body.desc||'', date: new Date().toLocaleDateString('zh-CN'), files: filesJson, created_at: new Date().toISOString() }]);
+        const { data: newItem } = await supabase.from('homework').select('*').eq('id', newId).maybeSingle();
+        return jsonRes(newItem, 201);
+      }
+      // PUT 更新作业
+      if (req.method === 'PUT' && id) {
+        const body = await parseBody(req);
+        const { data: existing } = await supabase.from('homework').select('*').eq('id', id).eq('user_id', userId).maybeSingle();
+        if (!existing) return jsonRes({ error: '作业不存在' }, 404);
+        const filesJson = JSON.stringify(body.files !== undefined ? body.files : parseJsonSafe(existing.files));
+        await supabase.from('homework').update({
+          title: body.title, subject: body.subject,
+          status: body.status || existing.status,
+          deadline: body.deadline !== undefined ? body.deadline : existing.deadline,
+          score: body.score !== undefined ? body.score : existing.score,
+          desc: body.desc !== undefined ? body.desc : existing.desc,
+          files: filesJson
+        }).eq('id', id);
+        const { data: updated } = await supabase.from('homework').select('*').eq('id', id).maybeSingle();
+        return jsonRes(updated);
+      }
+      // DELETE 删除作业
+      if (req.method === 'DELETE' && id) {
+        const { data: existing } = await supabase.from('homework').select('id').eq('id', id).eq('user_id', userId).maybeSingle();
+        if (!existing) return jsonRes({ error: '作业不存在' }, 404);
+        await supabase.from('homework').delete().eq('id', id);
+        return jsonRes({ message: '作业已删除' });
+      }
+      return; // Supabase 模式处理完毕
+    }
+
+    // 本地模式
     const list = db.homework[userId] || [];
 
     if (req.method === 'GET' && !id) {
