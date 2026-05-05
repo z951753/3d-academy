@@ -84,6 +84,18 @@ export default {
         if (!id && request.method === 'POST')    return createHomework(userId, request, env);
         if (id  && request.method === 'PUT')     return updateHomework(id, userId, request, env);
         if (id  && request.method === 'DELETE')  return deleteHomework(id, userId, env);
+
+        // 作业点赞
+        const likeMatch = url.pathname.match(/^\/api\/homework\/(.+)\/like$/);
+        if (likeMatch && request.method === 'POST') {
+          const hwId = likeMatch[1];
+          return likeHomework(hwId, userId, env);
+        }
+      }
+
+      // ===== 公开作业（社区广场）=====
+      if (url.pathname === '/api/homework/public' && request.method === 'GET') {
+        return getPublicHomework(url, env);
       }
 
       // ===== 文件上传/下载（R2）=====
@@ -828,6 +840,110 @@ async function getFile(key, userId, env) {
   Object.assign(headers, corsHeaders());
 
   return new Response(object.body, { headers });
+}
+
+// ==================== 作业点赞功能 ====================
+
+async function likeHomework(hwId, userId, env) {
+  // 检查作业是否存在
+  const homework = await env.DB.prepare(
+    'SELECT * FROM homework WHERE id = ?'
+  ).bind(hwId).first();
+
+  if (!homework) {
+    return json({ error: '作业不存在' }, 404);
+  }
+
+  // 检查是否已点赞（简单的 likes 字段存储 JSON 数组）
+  let likes = parseJsonSafe(homework.likes);
+  const userLiked = likes.includes(userId);
+
+  if (userLiked) {
+    // 取消点赞
+    likes = likes.filter(id => id !== userId);
+  } else {
+    // 点赞
+    likes.push(userId);
+  }
+
+  // 更新数据库
+  await env.DB.prepare(
+    'UPDATE homework SET likes = ? WHERE id = ?'
+  ).bind(JSON.stringify(likes), hwId).run();
+
+  return json({
+    liked: !userLiked,
+    count: likes.length,
+    message: !userLiked ? '点赞成功' : '已取消点赞'
+  });
+}
+
+// ==================== 公开作业（社区广场）====================
+
+async function getPublicHomework(url, env) {
+  const page = parseInt(url.searchParams.get('page')) || 1;
+  const limit = parseInt(url.searchParams.get('limit')) || 10;
+  const filter = url.searchParams.get('filter') || 'all';
+  const search = url.searchParams.get('search') || '';
+  const offset = (page - 1) * limit;
+
+  let sql = `
+    SELECT h.*, u.nickname as author_nickname, u.avatar_color as author_avatar_color
+    FROM homework h
+    LEFT JOIN users u ON h.user_id = u.id
+    WHERE 1=1
+  `;
+  const params = [];
+
+  if (filter !== 'all') {
+    sql += ' AND h.status = ?';
+    params.push(filter);
+  }
+
+  if (search) {
+    sql += ' AND (h.title LIKE ? OR h.subject LIKE ? OR h.desc LIKE ?)';
+    const kw = '%' + search + '%';
+    params.push(kw, kw, kw);
+  }
+
+  sql += ' ORDER BY h.created_at DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  const { results } = await env.DB.prepare(sql).bind(...params).all();
+
+  // 解析 JSON 字段
+  const list = (results || []).map(row => ({
+    ...row,
+    files: parseJsonSafe(row.files),
+    likes: parseJsonSafe(row.likes),
+    _authorNickname: row.author_nickname,
+    _authorAvatarColor: row.author_avatar_color,
+  }));
+
+  // 获取总数用于分页
+  let countSql = 'SELECT COUNT(*) as total FROM homework h WHERE 1=1';
+  const countParams = [];
+  if (filter !== 'all') {
+    countSql += ' AND h.status = ?';
+    countParams.push(filter);
+  }
+  if (search) {
+    countSql += ' AND (h.title LIKE ? OR h.subject LIKE ? OR h.desc LIKE ?)';
+    const kw = '%' + search + '%';
+    countParams.push(kw, kw, kw);
+  }
+  const countResult = await env.DB.prepare(countSql).bind(...countParams).first();
+  const total = countResult?.total || 0;
+
+  return json({
+    list,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit)
+    }
+  });
 }
 
 // ==================== 辅助函数 ====================

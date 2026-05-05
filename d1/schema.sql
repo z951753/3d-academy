@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS homework (
   desc TEXT DEFAULT '',
   date TEXT DEFAULT '',
   files TEXT DEFAULT '[]',    -- JSON: [{name,size,type,key}, ...]
+  likes TEXT DEFAULT '[]',   -- JSON: [userId1, userId2, ...] 点赞用户ID列表
+  is_public INTEGER DEFAULT 1, -- 是否公开到社区广场 (0=私有, 1=公开)
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -108,5 +110,7 @@ CREATE INDEX IF NOT EXISTS idx_mistakes_user ON mistakes(user_id);
 CREATE INDEX IF NOT EXISTS idx_mistakes_subject ON mistakes(subject);
 CREATE INDEX IF NOT EXISTS idx_homework_user ON homework(user_id);
 CREATE INDEX IF NOT EXISTS idx_homework_status ON homework(status);
+CREATE INDEX IF NOT EXISTS idx_homework_public ON homework(is_public);
+CREATE INDEX IF NOT EXISTS idx_homework_created ON homework(created_at);
 CREATE INDEX IF NOT EXISTS idx_files_user ON files(user_id);
 CREATE INDEX IF NOT EXISTS idx_files_key ON files(key);
